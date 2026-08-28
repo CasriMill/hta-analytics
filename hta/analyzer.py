@@ -48,20 +48,21 @@ class HTA:
         # použijeme původní výchozí anglicko-český slovník
         if self.n_devices is not None:
             self.variables_config = {
-                "cena": {"full_name": "Cena pořízení (Kč)", "range": (2500000, 5000000), "type": "cost", "dtype": "int", "std": 600000, "skewness": -5, "round_to": -3},
-                "naklady": {"full_name": "Roční provozní náklady (Kč)", "range": (20000, 50000), "type": "cost", "dtype": "int", "round_to": -2},
-                "ucinnost": {"full_name": "Klinická účinnost výkonu (%)", "range": (70, 99), "type": "benefit", "dtype": "float", "std": 6, "skewness": -2, "round_to": 1},
-                "spotreba": {"full_name": "Cena spotřebního materiálu - 1 vyšetření (Kč)", "range": (70, 150), "type": "benefit", "dtype": "float", "std": 6, "skewness": -2, "round_to": 1},
-                "skoleni": {"full_name": "Cena proškolení personálu - 1 školení (Kč)", "range": (70, 150), "type": "benefit", "dtype": "float", "std": 6, "skewness": -2, "round_to": 1},
-                "presnost": {"full_name": "Úroveň přesnosti měření (%)", "range": (975, 999), "type": "benefit", "dtype": "int", "std": 3, "skewness": 1.5},
-                "provozuschopnost": {"full_name": "Servisní pozáruční podpora a výroba spotřebního materiálu (roky)", "range": (3, 10), "type": "benefit", "dtype": "int"},
-                "ce_cert": {"full_name": "CE certifikace", "type": "benefit", "dtype": "bool", "prob_true": 0.99},
-                "konectivita_Eth": {"full_name": "Připojení na síť Ethernet", "type": "benefit", "dtype": "bool", "prob_true": 0.8},
-                "konectivita_WiFi": {"full_name": "Připojení na síť WiFi", "type": "benefit", "dtype": "bool", "prob_true": 0.8},
-                "konectivita_USB": {"full_name": "Připojení na síť USB", "type": "benefit", "dtype": "bool", "prob_true": 0.9},
-                "konectivita_NIS": {"full_name": "Připojení do systému NIS", "type": "benefit", "dtype": "bool", "prob_true": 0.95},
-                "konectivita_HLA5": {"full_name": "Datová struktura protokol HLA5", "type": "benefit", "dtype": "bool", "prob_true": 0.65},
+                "price": {"full_name": "Purchase Price (EUR)", "range": (100000, 200000), "type": "cost", "dtype": "int", "std": 30000, "skewness": -5, "round_to": -2},
+                "op_costs": {"full_name": "Annual Operational Costs (EUR)", "range": (1000, 5000), "type": "cost", "dtype": "int", "round_to": -2},
+                "efficacy": {"full_name": "Clinical Efficacy of Procedure (%)", "range": (70, 99), "type": "benefit", "dtype": "float", "std": 6, "skewness": -2, "round_to": 1},
+                "consumables": {"full_name": "Consumables Cost per Examination (EUR)", "range": (5, 20), "type": "cost", "dtype": "float", "std": 2, "skewness": 1.5, "round_to": 1},
+                "training": {"full_name": "Staff Training Cost per Course (EUR)", "range": (500, 2000), "type": "cost", "dtype": "float", "std": 300, "skewness": 1.2, "round_to": 0},
+                "accuracy": {"full_name": "Measurement Accuracy Level (‰)", "range": (975, 999), "type": "benefit", "dtype": "int", "std": 3, "skewness": 1.5},
+                "service_life": {"full_name": "Post-Warranty Support & Parts Availability (years)", "range": (3, 10), "type": "benefit", "dtype": "int"},
+                "ce_cert": {"full_name": "CE Certification Status", "type": "benefit", "dtype": "bool", "prob_true": 0.99},
+                "connectivity_eth": {"full_name": "Ethernet Network Connectivity", "type": "benefit", "dtype": "bool", "prob_true": 0.8},
+                "connectivity_wifi": {"full_name": "Wireless WiFi Connectivity", "type": "benefit", "dtype": "bool", "prob_true": 0.8},
+                "connectivity_usb": {"full_name": "USB Data Interface Support", "type": "benefit", "dtype": "bool", "prob_true": 0.9},
+                "connectivity_his": {"full_name": "Hospital Information System (HIS) Integration", "type": "benefit", "dtype": "bool", "prob_true": 0.95},
+                "protocol_hl7": {"full_name": "HL7 Protocol Compliant Data Structure", "type": "benefit", "dtype": "bool", "prob_true": 0.65},
             }
+
             self.devices = [f"Device_{i+1}" for i in range(self.n_devices)]
             self.filtered_devices = list(self.devices)
             self.generate_data()
@@ -133,13 +134,13 @@ class HTA:
             self.filtered_devices = list(self.devices)
             self.n_devices = len(self.devices)
             
-            print(f"✅ Úspěšně načteno {self.n_devices} zařízení.")
+            print(f"✅ Succesfull import of {self.n_devices} devices.")
             
             # Spuštění testu konzistence dat (ověří, zda v souboru nejsou NaN nebo chyby)
             return self.validate_data()
             
         except Exception as e:
-            print(f"❌ KRITICKÁ CHYBA PŘI IMPORTU SOUBORU: {str(e)}")
+            print(f"❌ Critical error in import of file: {str(e)}")
             self.raw_data = None
             return False
 
@@ -269,16 +270,16 @@ class HTA:
         # ZAVEDENÍ ZÁVISLOSTI (Korelace s cenou)
         # =====================================================================
         # 1. Seřadíme celý DataFrame podle ceny vzestupně (od nejlevnějšího po nejdražší)
-        self.raw_data = self.raw_data.sort_values(by="cena", ascending=True)
+        self.raw_data = self.raw_data.sort_values(by="price", ascending=True)
         
         # 2. Pokud existuje proměnná pro školení, vezmeme její hodnoty, seřadíme je a přepíšeme je zpět
         # Tím zajistíme: nejlevnější přístroj = nejlevnější školení, nejdražší přístroj = nejdražší školení
-        if "skoleni" in self.raw_data.columns:
-            self.raw_data["skoleni"] = np.sort(self.raw_data["skoleni"].values)
+        if "training" in self.raw_data.columns:
+            self.raw_data["training"] = np.sort(self.raw_data["training"].values)
             
         # 3. Totéž provedeme pro přesnost (pokud ji máte v systému definovanou)
-        if "presnost" in self.raw_data.columns:
-            self.raw_data["presnost"] = np.sort(self.raw_data["presnost"].values)
+        if "accuracy" in self.raw_data.columns:
+            self.raw_data["accuracy"] = np.sort(self.raw_data["accuracy"].values)
             
         # Optional: Na konci vrátíme indexy zpět do původního pořadí (Device_1, Device_2...), 
         # aby řádky nebyly vizuálně přeházené, ale hodnoty uvnitř už zůstanou perfektně svázané.
@@ -296,10 +297,10 @@ class HTA:
         numeric_cols = [c for c, cfg in self.variables_config.items() if cfg.get("dtype") != "bool"]
         n_plots = len(numeric_cols)
         
-        print("\n--- POPISNÁ STATISTIKA VSTUPNÍCH DAT ---")
+        print("\n--- Descriptive statistics imported data ---")
         stats_df = self.raw_data[numeric_cols].describe().T
-        stats_df["Plný název"] = [self.variables_config[c]["full_name"] for c in numeric_cols]
-        print(stats_df[["Plný název", "count", "mean", "std", "min", "max"]])
+        stats_df["full_name"] = [self.variables_config[c]["full_name"] for c in numeric_cols]
+        print(stats_df[["full_name", "count", "mean", "std", "min", "max"]])
         
         # Výpočet potřebného počtu řádků v mřížce
         n_rows = (n_plots + cols_per_row - 1) // cols_per_row
@@ -712,10 +713,10 @@ class HTA:
         ax.set_xscale('symlog', linthresh=0.1)
         
         # Vizuální zvýraznění lineární zóny (šedé pozadí pro jemné detaily)
-        ax.axvspan(-0.1, 0.1, color='gray', alpha=0.08, label='Lineární zóna (detail)')
+        ax.axvspan(-0.1, 0.1, color='gray', alpha=0.08, label='Linear zone (detail)')
         
         # Vykreslení nulové středové linie (aktuální nastavení)
-        ax.axvline(x=0, color='black', linestyle='-', linewidth=1.5, label='Aktuální nastavení váhy')
+        ax.axvline(x=0, color='black', linestyle='-', linewidth=1.5, label="Preset weight's setup")
         
         # Vykreslení horizontálních pruhů tolerancí
         for idx, (d_min, d_max) in enumerate(zip(delta_min, delta_max)):
@@ -730,8 +731,8 @@ class HTA:
         ax.set_xticks([-1.0, -0.5, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.5, 1.0])
         ax.set_xticklabels(['-1.0', '-0.5', '-0.2', '-0.1', '-0.05', '0', '0.05', '0.1', '0.2', '0.5', '1.0'])
         
-        ax.set_xlabel("Možný relativní posun váhy (Δ delta)")
-        ax.set_title(f"Tolerance změny vah před rozpadem pořadí\n(Měřítko SymLog | Metoda: {method} + {norm_method})", 
+        ax.set_xlabel("Permissible Relative Weight Shift (Δ Delta)")
+        ax.set_title(f"Weight Stability Bounds Prior to Rank Collapse\n(SymLog Scale | MCDA: {method} + {norm_method})", 
                      fontsize=11, fontweight='bold', pad=15)
         
         # Nastavení limitů osy s drobnou rezervou za maximální možný rozsah
