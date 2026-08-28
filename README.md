@@ -24,9 +24,11 @@ The library supports dynamic data generation, multi-format file imports (CSV/XLS
 
 ## 🛠️ Installation
 
-You can install the package locally in editable/development mode directly from your project directory:
+Option 1: For Local Users & Developers (From Source)
+If you have downloaded the repository source files or extracted the ZIP archive, open your terminal/console, navigate into the project directory, and install it in editable mode:
 
 ```bash
+cd hta-analytics
 pip install -e .
 ```
 
