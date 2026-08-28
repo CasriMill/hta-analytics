@@ -61,12 +61,13 @@ from hta import HTA
 hta = HTA()
 
 # 2. Load your custom evaluation sheet (automatically parses 13+ criteria)
-hta.load_data("medical_devices.xlsx")
+hta.load_data("mcda_demo_data.csv")
 
 # 3. Define raw un-normalized weights (e.g., scoring points 1-10)
 importance_weights = {
     "price": 8,
     "efficiency": 10,
+    "supplies": 5,
     "ce_cert": 0
 }
 hta.set_weights(importance_weights)
@@ -104,6 +105,7 @@ If you use this software or its computational methods in your academic research,
 **Suggested Citation Format:**
 > Your Name. (2026). *HTA Analytics: A Python library for Multi-Criteria Decision Analysis and Weight Sensitivity in Health Technology Assessment*. GitHub repository. Available at: https://github.com
 
+---
 
 ## 📄 License
 

@@ -1,5 +1,8 @@
-Device_ID;cena;ucinnost;poruchy;ce_cert
+Device_ID;price;efficiency;supplies;ce_cert
 HTA_Type;cost;benefit;cost;benefit
 HTA_Dtype;int;float;int;bool
 Device_1;3500000;85.5;2;True
-Device_2;2800000;72.0;5;False
+Device_2;2800000;72.0;5;True
+Device_3;2600000;92.0;4;True
+Device_4;1800000;72.0;0;False
+Device_5;5800001;99.1;1;True
