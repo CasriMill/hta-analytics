@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 HTA Analytics — Core Computational Engine
 ========================================
@@ -11,7 +11,7 @@ and robust weight sensitivity assessment using interval bisection algorithms.
 :authors:     MILLEK Jiri  <jiri.millek@fbmi.cvut.cz> [https://orcid.org/0000-0002-5834-7184]
 :copyright:   (c) 2026 MILLEK Jiri / CASRI, p.o. MoD Czech Republic && Czech Technical University in Prague, Faculty of Biomedical Engineering dept. Information and Communication Technologies in Medicine
 :license:     MIT License
-:version:     0.1.5
+:version:     0.1.6
 :status:      Open Source
 """
 
@@ -35,8 +35,8 @@ class HTA:
         """
         self.n_devices = n_devices
         
-        # Slovník konfigurace začíná jako prázdný (pokud uživatel nedodá vlastní)
-        # Kompletně se naplní dynamicky z meta-řádků načteného souboru
+        # Configuration dictionary starts empty unless the user supplies their own definition.
+        # It is populated dynamically from metadata rows in the imported file.
         self.variables_config = {} if variables_config is None else variables_config
             
         self.raw_data = None
@@ -44,8 +44,8 @@ class HTA:
         self.normalized_data = None
         self._silence_info = False
         
-        # Pokud uživatel přesto zadá počet zařízení (generování na zelené louce), 
-        # použijeme původní výchozí anglicko-český slovník
+        # If the user still specifies the number of devices (synthetic generation path),
+        # use the default English/Czech-compatible configuration set.
         if self.n_devices is not None:
             self.variables_config = {
                 "price": {"full_name": "Purchase Price (EUR)", "range": (100000, 200000), "type": "cost", "dtype": "int", "std": 30000, "skewness": -5, "round_to": -2},
@@ -85,7 +85,7 @@ class HTA:
         """
         print(f"\n📂 Reading international HTA data from file: {file_path}")
         try:
-            # Načtení souboru (automatická detekce oddělovače u CSV)
+            # Load the source file (automatic separator detection for CSV)
             if file_path.endswith('.csv'):
                 df = pd.read_csv(file_path, index_col=0, sep=None, engine='python')
             elif file_path.endswith('.xlsx') or file_path.endswith('.xls'):
@@ -93,11 +93,11 @@ class HTA:
             else:
                 raise ValueError("Unsupported file format. Use .csv or .xlsx with sep=';' and decimal = '.'!")
             
-            # --- EXTRAKCE METADAT Z HLAVIČKY SOUBORU ---
+            # --- EXTRACT METADATA FROM THE FILE HEADER ---
             types_row = df.loc["HTA_Type"]
             dtypes_row = df.loc["HTA_Dtype"]
             
-            # Ošetření: full_name řádek je volitelný, pokud chybí, použijeme zkrácený název
+            # Handle the optional full-name row; if missing, fall back to the short name.
             if "HTA_FullName" in df.index:
                 full_names_row = df.loc["HTA_FullName"]
                 rows_to_drop = ["HTA_Type", "HTA_Dtype", "HTA_FullName"]
@@ -105,7 +105,7 @@ class HTA:
                 full_names_row = None
                 rows_to_drop = ["HTA_Type", "HTA_Dtype"]
             
-            # Dynamické sestavení vnitřního variables_config slovníku
+            # Dynamically build the internal variables_config dictionary
             self.variables_config = {}
             for col in df.columns:
                 self.variables_config[col] = {
@@ -114,11 +114,11 @@ class HTA:
                     "full_name": str(full_names_row[col]).strip() if full_names_row is not None else str(col)
                 }
             
-            # --- CLEAN DATA w/o METADATA ---
-            # drop of comments and confi rows
+            # --- CLEAN DATA WITHOUT METADATA ---
+            # drop comment and configuration rows
             self.raw_data = df.drop(rows_to_drop)
             
-            # Přetypování sloupců podle načtených parametrů
+            # Re-type columns according to the imported metadata
             for col in self.raw_data.columns:
                 dt = self.variables_config[col]["dtype"]
                 if dt == "int":
@@ -126,17 +126,17 @@ class HTA:
                 elif dt == "float":
                     self.raw_data[col] = pd.to_numeric(self.raw_data[col]).astype(float)
                 elif dt == "bool":
-                    # Převede texty 'True'/'False' nebo čísla 1/0 správně na čistý boolean typu bool
+                    # Convert values such as 'True'/'False' or 1/0 into proper boolean types
                     self.raw_data[col] = self.raw_data[col].map({'True': True, 'False': False, 1: True, 0: False, True: True, False: False})
             
-            # Nastavení vnitřních proměnných třídy podle reálných dat
+            # Set internal attributes based on the imported dataset
             self.devices = list(self.raw_data.index)
             self.filtered_devices = list(self.devices)
             self.n_devices = len(self.devices)
             
             print(f"✅ Succesfull import of {self.n_devices} devices.")
             
-            # Spuštění testu konzistence dat (ověří, zda v souboru nejsou NaN nebo chyby)
+            # Run the data consistency check to confirm there are no NaN or invalid values.
             return self.validate_data()
             
         except Exception as e:
@@ -144,64 +144,22 @@ class HTA:
             self.raw_data = None
             return False
 
-
-    def generate_data(self):
-        """Vygeneruje surová simulovaná data a aplikuje provázání nejdražšího přístroje se školením/přesností."""
-        data = {}
-        for short_name, cfg in self.variables_config.items():
-            dtype = cfg.get("dtype", "float")
-            
-            if dtype == "bool":
-                p = cfg.get("prob_true", 0.5)
-                data[short_name] = np.random.choice([True, False], size=self.n_devices, p=[p, 1-p])
-                continue
-                
-            low, high = cfg["range"]
-            if "std" in cfg or "skewness" in cfg:
-                skew = cfg.get("skewness", 0)
-                std = cfg.get("std", (high - low) / 4)
-                mean = (low + high) / 2
-                vals = []
-                while len(vals) < self.n_devices:
-                    sample = stats.skewnorm.rvs(skew, loc=mean, scale=std, size=self.n_devices * 2)
-                    valid_sample = sample[(sample >= low) & (sample <= high)]
-                    vals.extend(valid_sample)
-                gen_arr = np.array(vals[:self.n_devices])
-            else:
-                gen_arr = np.random.uniform(low, high, self.n_devices)
-                
-            round_to = cfg.get("round_to", 0 if dtype == "int" else 2)
-            gen_arr = np.round(gen_arr, round_to)
-            data[short_name] = gen_arr.astype(int) if dtype == "int" else gen_arr
-                
-        self.raw_data = pd.DataFrame(data, index=self.devices)
-        
-        # --- ZAVEDENÍ ZÁVISLOSTI (Korelace s cenou) ---
-        self.raw_data = self.raw_data.sort_values(by="cena", ascending=True)
-        if "skoleni" in self.raw_data.columns:
-            self.raw_data["skoleni"] = np.sort(self.raw_data["skoleni"].values)
-        if "presnost" in self.raw_data.columns:
-            self.raw_data["presnost"] = np.sort(self.raw_data["presnost"].values)
-        self.raw_data = self.raw_data.sort_index()
-        
-        return self.raw_data
-
     def validate_data(self):
-        """ Provede striktní kontrolu formátu a konzistence načtených nebo vygenerovaných dat. """
+        """Perform strict validation of the format and consistency of loaded or generated data."""
         if self.raw_data is None:
-            print("❌ Kritická chyba: Nejsou načtena žádná data ke kontrole.")
+            print("❌ Critical error: No data has been loaded for validation.")
             return False
             
         is_consistent = True
-        print("\n🔍 SPUŠTĚN TEST KONZISTENCE A FORMÁTU DAT...")
+        print("\n🔍 DATA FORMAT AND CONSISTENCY TEST HAS STARTED...")
         
         if self.raw_data.isna().sum().sum() > 0:
-            print("   ⚠️ Pozor: Tabulka obsahuje prázdné nebo nedefinované hodnoty (NaN)!")
+            print("   ⚠️ Warning: The table contains empty or undefined values (NaN)!")
             is_consistent = False
             
         for short_name in self.variables_config.keys():
             if short_name not in self.raw_data.columns:
-                print(f"   ❌ Kritická chyba: V datech kompletně chybí vyžadovaný sloupec '{short_name}'!")
+                print(f"   ❌ Critical error: Required column '{short_name}' is missing from the dataset!")
                 is_consistent = False
                 continue
                 
@@ -211,27 +169,27 @@ class HTA:
             
             if dtype == "bool":
                 if not series.isin([True, False, 0, 1, 0.0, 1.0]).all():
-                    print(f"   ❌ Chyba typu: Sloupec '{short_name}' má být typu BOOL, ale obsahuje jiná data!")
+                    print(f"   ❌ Type error: Column '{short_name}' should be BOOL but contains other values!")
                     is_consistent = False
             elif dtype == "int":
                 if not np.equal(series, series.astype(int)).all():
-                    print(f"   ⚠️ Varování: Sloupec '{short_name}' má být INT, ale obsahuje desetinná čísla!")
+                    print(f"   ⚠️ Warning: Column '{short_name}' should be INT but contains decimal values!")
                     
             if dtype != "bool" and "range" in cfg:
                 low, high = cfg["range"]
                 if series.min() < low or series.max() > high:
-                    print(f"   ⚠️ Varování rozmezí: Hodnoty ve sloupci '{short_name}' utíkají mimo konfiguraci (Aktuální Min: {series.min()}, Max: {series.max()} vs povolené {cfg['range']}).")
+                    print(f"   ⚠️ Range warning: Values in column '{short_name}' exceed the configured range (Current Min: {series.min()}, Max: {series.max()} vs allowed {cfg['range']}).")
 
         if is_consistent:
-            print("🚀 Všechny testy formátu a konzistence proběhly úspěšně. Data jsou validní.")
+            print("🚀 All format and consistency checks passed successfully. Data are valid.")
         else:
-            print("⚠️ V datech byly nalezeny nesrovnalosti. Zkontrolujte výpis výše.")
+            print("⚠️ Inconsistencies were found in the data. Check the output above.")
             
         return is_consistent
 
 
     def generate_data(self):
-        """Vygeneruje surová data a zajistí, aby nejdražší přístroje měly nejdražší školení/přesnost."""
+        """Generate synthetic raw data while preserving the intended cost-benefit relationships."""
         data = {}
         for short_name, cfg in self.variables_config.items():
             dtype = cfg.get("dtype", "float")
@@ -263,26 +221,26 @@ class HTA:
             else:
                 data[short_name] = gen_arr
                 
-        # Vytvoření základního DataFrame
+        # Create the base DataFrame
         self.raw_data = pd.DataFrame(data, index=self.devices)
         
         # =====================================================================
-        # ZAVEDENÍ ZÁVISLOSTI (Korelace s cenou)
+        # INTRODUCE DEPENDENCY (Correlation with price)
         # =====================================================================
-        # 1. Seřadíme celý DataFrame podle ceny vzestupně (od nejlevnějšího po nejdražší)
+        # 1. Sort the whole DataFrame by price ascending (from cheapest to most expensive)
         self.raw_data = self.raw_data.sort_values(by="price", ascending=True)
         
-        # 2. Pokud existuje proměnná pro školení, vezmeme její hodnoty, seřadíme je a přepíšeme je zpět
-        # Tím zajistíme: nejlevnější přístroj = nejlevnější školení, nejdražší přístroj = nejdražší školení
+        # 2. If the training variable exists, sort its values and write them back.
+        # This ensures: the cheapest device = cheapest training, the most expensive device = most expensive training.
         if "training" in self.raw_data.columns:
             self.raw_data["training"] = np.sort(self.raw_data["training"].values)
             
-        # 3. Totéž provedeme pro přesnost (pokud ji máte v systému definovanou)
+        # 3. Same approach for accuracy, if defined in the system.
         if "accuracy" in self.raw_data.columns:
             self.raw_data["accuracy"] = np.sort(self.raw_data["accuracy"].values)
             
-        # Optional: Na konci vrátíme indexy zpět do původního pořadí (Device_1, Device_2...), 
-        # aby řádky nebyly vizuálně přeházené, ale hodnoty uvnitř už zůstanou perfektně svázané.
+        # Optional: restore original row ordering at the end (Device_1, Device_2...),
+        # so the table remains visually organized while the internal values stay correctly paired.
         self.raw_data = self.raw_data.sort_index()
         
         return self.raw_data
@@ -290,9 +248,9 @@ class HTA:
 
     def plot_descriptive_stats(self, cols_per_row=3):
         """
-        Vypíše popisnou statistiku a vykreslí kombinovaný Violin + Scatter plot
-        uspořádaný přehledně do více řádků.
-        :param cols_per_row: Maximální počet grafů (sloupců) na jednom řádku.
+        Print descriptive statistics and plot a combined violin + scatter chart
+        arranged neatly across multiple rows.
+        :param cols_per_row: Maximum number of plots (columns) per row.
         """
         numeric_cols = [c for c, cfg in self.variables_config.items() if cfg.get("dtype") != "bool"]
         n_plots = len(numeric_cols)
@@ -302,13 +260,13 @@ class HTA:
         stats_df["full_name"] = [self.variables_config[c]["full_name"] for c in numeric_cols]
         print(stats_df[["full_name", "count", "mean", "std", "min", "max"]])
         
-        # Výpočet potřebného počtu řádků v mřížce
+        # Calculate required number of rows in the grid
         n_rows = (n_plots + cols_per_row - 1) // cols_per_row
         
-        # Dynamické určení velikosti okna podle počtu řádků a sloupců
+        # Dynamically determine figure size based on the number of rows and columns
         fig, axes = plt.subplots(n_rows, cols_per_row, figsize=(4 * cols_per_row, 4.5 * n_rows))
         
-        # Převedeme axes na jednorozměrné pole pro snadnější indexaci (i v případě 1x1 nebo 1xN)
+        # Convert axes to a one-dimensional array for easier indexing (including 1x1 or 1xN cases)
         if n_plots == 1:
             axes = np.array([axes])
         else:
@@ -318,10 +276,10 @@ class HTA:
             ax = axes[i]
             data_to_plot = self.raw_data[col].values
             
-            # 1. Vykreslení Violin plotu
+            # 1. Draw the violin plot
             parts = ax.violinplot(data_to_plot, showmeans=False, showmedians=True, showextrema=True)
             
-            # Úprava vzhledu violinu
+            # Adjust violin styling
             for pc in parts['bodies']:
                 pc.set_facecolor('#1f77b4')
                 pc.set_edgecolor('grey')
@@ -330,17 +288,17 @@ class HTA:
             parts['cmaxes'].set_color('grey')
             parts['cmins'].set_color('grey')
             
-            # 2. Vykreslení Scatter plotu s jitterem (červené body)
+            # 2. Draw the scatter plot with jitter (red points)
             jitter = np.random.normal(1, 0.04, size=len(data_to_plot))
             ax.scatter(jitter, data_to_plot, color='red', alpha=0.7, edgecolors='black', zorder=3)
             
-            # Popisky a formátování jednotlivého sub-grafu
+            # Labels and formatting for the subplot
             ax.set_title(self.variables_config[col]["full_name"], fontsize=9, pad=10)
             ax.set_xticks([1])
-            ax.set_xticklabels(["Distribuce"])
+            ax.set_xticklabels(["Distribution"])
             ax.grid(True, linestyle='--', alpha=0.5)
             
-        # 3. Skrytí nevyužitých (prázdných) pod-grafů v mřížce
+        # 3. Hide unused empty subplots in the grid
         for j in range(i + 1, len(axes)):
             fig.delaxes(axes[j])
             
@@ -350,24 +308,24 @@ class HTA:
 
 
     def set_weights(self, weights_dict):
-        """Normalizuje libovolné váhy tak, aby součet byl 1.0."""
+        """Normalize any weights so that their total sum equals 1.0."""
         full_weights = {v: weights_dict.get(v, 0.0) for v in self.variables_config.keys()}
         total = sum(full_weights.values())
-        if total <= 0: raise ValueError("Součet vah nesmí být <=0!")
+        if total <= 0: raise ValueError("The sum of weights must be > 0!")
         self.weights = pd.Series({k: v / total for k, v in full_weights.items()})
         return self.weights
 
     def apply_filters(self, filter_dict):
-        """Uplatní vyřazující kritéria (např. {'ce_cert': True})."""
+        """Apply exclusion criteria (e.g., {'ce_cert': True})."""
         self.filtered_devices = list(self.devices)
         for col, target_val in filter_dict.items():
             if col in self.raw_data.columns:
                 passed = self.raw_data[self.raw_data[col] == target_val].index
                 self.filtered_devices = [d for d in self.filtered_devices if d in passed]
-        print(f"\nFiltr {filter_dict} uplatněn. Postupuje {len(self.filtered_devices)} z {self.n_devices} zařízení.")
+        print(f"\nFilter {filter_dict} applied. Proceeding with {len(self.filtered_devices)} out of {self.n_devices} devices.")
 
     def normalize_data(self, method="weitendorf"):
-        """Variantní normalizace dat: 'minmax', 'weitendorf', "z_score"."""
+        """Alternative normalization methods: 'minmax', 'weitendorf', 'z_score'."""
         self.normalized_data = pd.DataFrame(index=self.devices, columns=self.raw_data.columns)
         
         for col, cfg in self.variables_config.items():
@@ -415,66 +373,66 @@ class HTA:
         """
         active_cols = []
         for col in self.variables_config.keys():
-            # Získáme surová data pouze pro zařízení, která prošla filtrem
+            # Use only raw data for devices that passed the filter
             raw_series = self.raw_data.loc[self.filtered_devices, col]
             
-            # Pokud je ve sloupci více než 1 unikátní hodnota, sloupec je užitečný pro MCDA
+            # If there is more than one unique value in the column, it is useful for MCDA
             if raw_series.nunique() > 1:
                 active_cols.append(col)
             else:
-                # Informujeme uživatele, že sloupec byl povýšen čistě na vyřazující filtr
-                # (Vypíše se pouze pokud měl nastavenou nenulovou váhu)
+                # Inform the user that the column is effectively only a filter criterion
+                # (printed only when the weight is non-zero)
                 if self.weights is not None and self.weights.get(col, 0) > 0:
-                    # Tuto zprávu vypíšeme jen při reálném výpočtu, při citlivostce (kdy se váhy neustále mění) ji skryjeme
+                    # This message is displayed only during real evaluation, not during sensitivity analysis when weights change repeatedly
                     if hasattr(self, '_silence_info') and not self._silence_info:
-                        print(f"ℹ️ Kritérium '{col}' slouží v tomto kontextu pouze jako filtr (všechna schválená zařízení mají shodnou hodnotu).")
+                        print(f"ℹ️ Criterion '{col}' is only used as a filter in this context (all approved devices have the same value).")
         return active_cols
 
     def _adjust_active_weights(self, active_cols):
         """
-        KROK 2: Test a přepočet vah.
-        Vezme původní váhy, vyřadí neaktivní sloupce a zbylé váhy znormalizuje na 1.0.
+        STEP 2: Test and recalculate weights.
+        Takes the original weights, removes inactive columns, and normalizes the remaining weights to 1.0.
         """
         if self.weights is None:
             self.set_weights({c: 1 for c in self.variables_config.keys()})
             
-        # Vytáhneme váhy pouze pro užitečné sloupce
+        # Use weights only for the active criteria
         active_weights = self.weights[active_cols].copy()
         
-        # Provedeme přepočet (redistribuci) tak, aby součet aktivních vah dával přesně 1.0 (100 %)
+        # Recalculate the distribution so the sum of active weights is exactly 1.0 (100%)
         if active_weights.sum() > 0:
             active_weights = active_weights / active_weights.sum()
         else:
-            # Krajní případ: Pokud by nezbyla žádná váha, rozdělíme důležitost rovnoměrně
+            # Edge case: if no weight remains, distribute importance evenly
             active_weights = pd.Series(1.0 / len(active_cols), index=active_cols)
             
         return active_weights
 
     def run_mcda(self, method="SAW", norm_method="minmax"):
         """
-        KROK 3: Hlavní spouštěcí metoda MCDA realizující čistou analytickou pipeline:
-        Očištění dimenzí -> Přepočet vah -> Normalizace -> Výpočet algoritmu.
+        STEP 3: Main MCDA execution method that realizes a clean analytical pipeline:
+        dimension cleanup -> weight recalculation -> normalization -> algorithm calculation.
         """
-        # Inicializace výchozích vah, pokud ještě nebyly nastaveny
+        # Initialize default weights if they have not been set yet
         if self.weights is None:
             self.set_weights({c: 1 for c in self.variables_config.keys()})
             
-        # 1. ANALÝZA SLUPCŮ: Najdeme proměnné, které mají reálnou rozlišovací schopnost
+        # 1. COLUMN ANALYSIS: Find variables that have real discriminating ability
         active_cols = self._prepare_active_dimensions()
         
-        # 2. PŘEPOČET VAH: Očistíme váhy od netečných kritérií a vrátíme sumu na 100%
+        # 2. WEIGHT RECALCULATION: Remove irrelevant criteria and normalize the total back to 100%
         active_weights = self._adjust_active_weights(active_cols)
         
-        # 3. NORMALIZACE: Spustíme variantní normalizaci nad surovými daty
+        # 3. NORMALIZATION: Run the selected normalization across raw data
         self.normalize_data(method=norm_method)
         
-        # Vybereme ze znormalizované matice pouze schválená zařízení a pouze aktivní sloupce
+        # Use only approved devices and active columns from the normalized matrix
         active_matrix = self.normalized_data.loc[self.filtered_devices, active_cols].copy()
         
-        # Příprava prázdné výsledné řady pro uložení skóre
+        # Prepare an empty result series for storing scores
         scores = pd.Series(0.0, index=self.devices)
         
-        # 4. VÝPOČET MCDA METODY (Nyní pracuje s garantovanou čistou maticí a vahami)
+        # 4. MCDA METHOD CALCULATION (now works with a guaranteed clean matrix and weights)
         if method == "SAW":
             scores.loc[self.filtered_devices] = active_matrix.multiply(active_weights).sum(axis=1)
             
@@ -503,7 +461,7 @@ class HTA:
                 vikor_score[d] = v * val_s + (1 - v) * val_r
             scores.loc[self.filtered_devices] = 1.0 - vikor_score
 
-        # 5. SESTAVENÍ VÝSLEDNÉ TABULKY
+        # 5. BUILD THE RESULT TABLE
         res = pd.DataFrame({"Score": scores})
         res["Status"] = ["Accepted" if i in self.filtered_devices else "Refuse" for i in res.index]
         res["Rank"] = res["Score"].rank(ascending=False, method="min").astype(int)
@@ -511,7 +469,7 @@ class HTA:
         return res.sort_values(by="Rank")
 
     def compare_approaches(self):
-        """Porovná výsledné žebříčky různých kombinací normalizace a MCDA metod."""
+        """Compare result rankings across different normalization and MCDA method combinations."""
         combinations = [("minmax", "SAW"), ("minmax", "TOPSIS"), ("weitendorf", "SAW"), ("weitendorf", "TOPSIS"), ("z_score", "SAW"), ("z_score", "TOPSIS")]
         comparison_df = pd.DataFrame(index=self.devices)
         for norm, mcda in combinations:
@@ -522,77 +480,77 @@ class HTA:
             self.comparison = comparison_df
             
     def show_variables(self):
-        """ Vypíše přehledný seznam zkrácených názvů, plných názvů a parametrů generování. """
+        """Print a structured list of short names, full names, and generation parameters."""
         print("\n" + "="*80)
-        print("   PŘEHLED PROMĚNNÝCH A NASTAVENÍ GENERATORU DAT")
+        print("   VARIABLE OVERVIEW AND DATA GENERATOR SETTINGS")
         print("="*80)
         
-        # Projdeme všechny proměnné v konfiguraci
+        # Iterate through all variables in the configuration
         for short_name, cfg in self.variables_config.items():
-            print(f"🔹 Zkrácený název: '{short_name}'")
-            print(f"   - Plný název:  {cfg.get('full_name', 'Není zadán')}")
-            print(f"   - Datový typ:  {cfg.get('dtype', 'float')} | Směr kritéria: {cfg.get('type', 'benefit')}")
+            print(f"🔹 Short name: '{short_name}'")
+            print(f"   - Full name:  {cfg.get('full_name', 'Not provided')}")
+            print(f"   - Data type:  {cfg.get('dtype', 'float')} | Criterion direction: {cfg.get('type', 'benefit')}")
             
-            # Zobrazení parametrů podle typu dat
+            # Display parameters depending on the data type
             if cfg.get("dtype") == "bool":
-                print(f"   - Parametry:   Pravděpodobnost True = {cfg.get('prob_true', 0.5)*100}%")
+                print(f"   - Parameters:   Probability True = {cfg.get('prob_true', 0.5)*100}%")
             else:
-                round_info = f" (zaokr. na {cfg['round_to']})" if "round_to" in cfg else ""
-                print(f"   - Rozsah (Min, Max): {cfg.get('range')}{round_info}")
+                round_info = f" (rounded to {cfg['round_to']})" if "round_to" in cfg else ""
+                print(f"   - Range (Min, Max): {cfg.get('range')}{round_info}")
                 if "std" in cfg or "skewness" in cfg:
-                    print(f"   - Distribuce:  Směrodatná odchylka (std) = {cfg.get('std')}, Šikmost (skewness) = {cfg.get('skewness')}")
+                    print(f"   - Distribution:  Std deviation = {cfg.get('std')}, Skewness = {cfg.get('skewness')}")
                 else:
-                    print(f"   - Distribuce:  Rovnoměrná (Uniform)")
+                    print(f"   - Distribution:  Uniform")
             print("-" * 80)
 
     def update_variable_config(self, short_name, new_settings, regenerate=True):
         """
-        Změní nebo přidá konfiguraci konkrétní proměnné.
-        :param short_name: Zkrácený název měněné/nové proměnné (např. 'cena').
-        :param new_settings: Slovník s novými parametry (např. {'range': (100, 200), 'dtype': 'int'}).
-        :param regenerate: Pokud je True, automaticky se znovu vygeneruje celá matice dat.
+        Update or add the configuration for a specific variable.
+        :param short_name: Short name of the variable to edit or add (e.g. 'price').
+        :param new_settings: Dictionary with new parameters (e.g. {'range': (100, 200), 'dtype': 'int'}).
+        :param regenerate: If True, regenerate the full data matrix immediately so the changes take effect.
         """
         if short_name in self.variables_config:
-            # Aktualizujeme stávající nastavení
+            # Update existing settings
             self.variables_config[short_name].update(new_settings)
-            print(f"\n🔄 Konfigurace proměnné '{short_name}' byla úspěšně upravena.")
+            print(f"\n🔄 Variable configuration for '{short_name}' was updated successfully.")
         else:
-            # Pokud zkrácený název neexistuje, vytvoříme novou proměnnou
+            # Add a completely new variable if the short name does not exist
             self.variables_config[short_name] = new_settings
-            print(f"\n➕ Byla přidána úplně nová proměnná '{short_name}'.")
+            print(f"\n➕ A new variable '{short_name}' was added.")
             
-        # Přepočítáme celkový počet proměnných
+        # Recalculate the total number of variables
         self.n_variables = len(self.variables_config)
         
-        # Pokud je požadováno, rovnou přegenerujeme data, aby se změny projevily
+        # If requested, regenerate the data immediately so the changes become effective
         if regenerate:
             self.generate_data()
 
     def find_stability_intervals(self, method="SAW", norm_method="weitendorf", max_iter=10, min_step=0.01):
         """
-        Najde interval stability pro každou aktivní váhu pomocí algoritmu půlení intervalu.
-        NOVĚ: Testuje POUZE sloupce, které reálně vstupují do MCDA (obsahují variabilitu).
+        Find the stability interval for each active weight using the bisection interval method.
+        Updated: tests only columns that actually enter MCDA (those with variance).
         """
         if self.weights is None:
             self.set_weights({c: 1 for c in self.variables_config.keys()})
             
-        # Potlačíme vypisování informačních hlášek během stovek rychlých iterací citlivostky
+        # Suppress informational output during hundreds of rapid sensitivity-analysis iterations
         self._silence_info = True
             
         base_res = self.run_mcda(method=method, norm_method=norm_method)
         base_order = base_res[base_res["Status"] == "Accepted"]["Rank"].to_dict()
         
-        # --- KLÍČOVÁ ZMĚNA: Získáme pouze ty sloupce, které mají rozlišovací schopnost ---
+        # --- KEY CHANGE: Use only columns with real discriminating power ---
         active_cols = self._prepare_active_dimensions()
         
         intervals = {}
         original_weights = self.weights.copy()
         
-        # Iterujeme POUZE přes aktivní sloupce
+        # Iterate only over active columns
         for target_var in active_cols:
             w_orig = original_weights[target_var]
             
-            # --- HLEDÁNÍ HORNÍ HRANICE (w_max) ---
+            # --- FIND UPPER BOUND (w_max) ---
             low_w, high_w = w_orig, 1.0
             w_max = w_orig
             
@@ -611,7 +569,7 @@ class HTA:
                     if ov in active_cols:
                         new_weights[ov] = (original_weights[ov] / denom) * rem if denom > 0 else rem / (len(active_cols) - 1)
                     else:
-                        new_weights[ov] = original_weights[ov] # Vyřazeným sloupcům (např. s váhou 0) ponecháme původní stav
+                        new_weights[ov] = original_weights[ov] # Inactive columns (e.g., with weight 0) retain their original state
                 
                 self.weights = pd.Series(new_weights)
                 test_res = self.run_mcda(method=method, norm_method=norm_method)
@@ -623,7 +581,7 @@ class HTA:
                 else:
                     high_w = test_w
             
-            # --- HLEDÁNÍ SPODNÍ HRANICE (w_min) ---
+            # --- FIND LOWER BOUND (w_min) ---
             low_w, high_w = 0.0, w_orig
             w_min = w_orig
             
@@ -662,7 +620,7 @@ class HTA:
                 "delta_plus": w_max - w_orig
             }
             
-        # Obnovíme původní váhy a vypneme tichý režim
+        # Restore original weights and exit silent mode
         self.weights = original_weights
         self._silence_info = False
         
@@ -672,18 +630,18 @@ class HTA:
 
     def plot_relative_stability_delta(self, method="SAW", norm_method="weitendorf", sort_by="range"):
         """
-        Plot permissible relative weight shifts from the current baseline (0) 
+        Plot permissible relative weight shifts from the current baseline (0)
         using a symmetric logarithmic scale (SymLog).
         
-        Effectively expands high-sensitivity micro-variations near zero 
-        while simultaneously compressing macro-variations near +/- 1.0 
+        Effectively expands high-sensitivity micro-variations near zero,
+        while simultaneously compressing macro-variations near +/- 1.0
         without scale distortion.
         """
-        # Načteme uložená data citlivostní analýzy
+        # Load stored sensitivity-analysis data
         df = self.find_stability_intervals(method=method, norm_method=norm_method).copy()
         df["total_range"] = df["w_max"] - df["w_min"]
         
-        # Pomocná funkce pro zalamování dlouhých popisků na dva řádky
+        # Helper function to wrap long labels into two lines
         def wrap_label(text, max_chars=25):
             words = text.split()
             lines, current = [], ""
@@ -698,7 +656,7 @@ class HTA:
             
         df["wrapped_name"] = [wrap_label(self.variables_config[c]["full_name"]) for c in df.index]
         
-        # Seřazení podle šířky intervalu
+        # Sort by interval width
         if sort_by == "range":
             df = df.sort_values(by="total_range", ascending=False)
             
@@ -708,26 +666,26 @@ class HTA:
         
         fig, ax = plt.subplots(figsize=(10, 6))
         
-        # --- KLÍČOVÁ ZMĚNA: Nastavení symetrické logaritmické osy ---
-        # linthresh=0.1 říká, že interval (-0.1, 0.1) bude lineární a teprve za ním začne logaritmus
+        # --- KEY CHANGE: Use a symmetric logarithmic scale ---
+        # linthresh=0.1 means that the interval (-0.1, 0.1) stays linear and the logarithm begins only beyond it
         ax.set_xscale('symlog', linthresh=0.1)
         
-        # Vizuální zvýraznění lineární zóny (šedé pozadí pro jemné detaily)
+        # Visually highlight the linear zone (gray background for fine details)
         ax.axvspan(-0.1, 0.1, color='gray', alpha=0.08, label='Linear zone (detail)')
         
-        # Vykreslení nulové středové linie (aktuální nastavení)
+        # Draw the zero center line (current setting)
         ax.axvline(x=0, color='black', linestyle='-', linewidth=1.5, label="Preset weight's setup")
         
-        # Vykreslení horizontálních pruhů tolerancí
+        # Draw horizontal tolerance bars
         for idx, (d_min, d_max) in enumerate(zip(delta_min, delta_max)):
             ax.hlines(y=idx, xmin=d_min, xmax=d_max, color='#e74c3c', alpha=0.3, linewidth=10)
             ax.plot([d_min, d_max], [idx, idx], color='#c0392b', marker='|', markersize=12, markeredgewidth=2)
             
-        # Nastavení popisků osy Y a X
+        # Set Y and X axis labels
         ax.set_yticks(np.arange(len(labels)))
         ax.set_yticklabels(labels, fontsize=9)
         
-        # Hezké formátování značek na ose X (aby tam nebyly ošklivé mocniny typu 10^-1)
+        # Nice formatting of X-axis markers (avoiding ugly exponents like 10^-1)
         ax.set_xticks([-1.0, -0.5, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.5, 1.0])
         ax.set_xticklabels(['-1.0', '-0.5', '-0.2', '-0.1', '-0.05', '0', '0.05', '0.1', '0.2', '0.5', '1.0'])
         
@@ -735,7 +693,7 @@ class HTA:
         ax.set_title(f"Weight Stability Bounds Prior to Rank Collapse\n(SymLog Scale | MCDA: {method} + {norm_method})", 
                      fontsize=11, fontweight='bold', pad=15)
         
-        # Nastavení limitů osy s drobnou rezervou za maximální možný rozsah
+        # Set axis limits with a small margin beyond the maximum possible range
         ax.set_xlim(-1.1, 1.1)
         
         ax.grid(True, linestyle='--', alpha=0.4, axis='x')
