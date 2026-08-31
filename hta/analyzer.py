@@ -44,6 +44,9 @@ class HTA:
         self.normalized_data = None
         self._silence_info = False
         
+        # Results storage structure (populated after run_mcda)
+        self.results = None
+        
         # If the user still specifies the number of devices (synthetic generation path),
         # use the default English/Czech-compatible configuration set.
         if self.n_devices is not None:
@@ -79,9 +82,18 @@ class HTA:
             HTA_Type;cost;benefit;cost;benefit
             HTA_Dtype;int;float;int;bool
             HTA_FullName;desc of price; desc of effitiency; desc of product weight; identification of CE certification
+            HTA_Weight;0.25;0.35;0.15;0.25
             Device_1;3500000;85.5;2;True
             Device_2;2800000;72.0;5;False
         
+        Metadata rows (all optional except HTA_Type and HTA_Dtype):
+        - HTA_Type:      Specifies criterion type ('cost' or 'benefit')
+        - HTA_Dtype:     Data type ('int', 'float', or 'bool')
+        - HTA_FullName:  Long descriptive name for the variable (optional)
+        - HTA_Weight:    Weight values for MCDA (optional; if not present, must be set via set_weights())
+        
+        If HTA_Weight row is found, weights are automatically imported and processed.
+        If not found, a warning is displayed and you must call set_weights() manually.
         """
         print(f"\n📂 Reading international HTA data from file: {file_path}")
         try:
@@ -104,6 +116,15 @@ class HTA:
             else:
                 full_names_row = None
                 rows_to_drop = ["HTA_Type", "HTA_Dtype"]
+            
+            # Handle optional weights row
+            weights_imported = False
+            if "HTA_Weight" in df.index:
+                weights_row = df.loc["HTA_Weight"]
+                rows_to_drop.append("HTA_Weight")
+                weights_imported = True
+            else:
+                weights_row = None
             
             # Dynamically build the internal variables_config dictionary
             self.variables_config = {}
@@ -135,6 +156,35 @@ class HTA:
             self.n_devices = len(self.devices)
             
             print(f"✅ Succesfull import of {self.n_devices} devices.")
+            
+            # --- PROCESS IMPORTED WEIGHTS (IF PRESENT) ---
+            if weights_imported:
+                try:
+                    # Convert weights_row to numeric dictionary
+                    weights_dict = {}
+                    for col in weights_row.index:
+                        try:
+                            weights_dict[col] = float(weights_row[col])
+                        except (ValueError, TypeError):
+                            pass  # Skip invalid weight values
+                    
+                    if weights_dict:
+                        self.set_weights(weights_dict)
+                        print(f"📊 Weights imported successfully from file:")
+                        for var, weight in self.weights.items():
+                            full_name = self.variables_config.get(var, {}).get("full_name", var)
+                            print(f"   • {var:20s} ({full_name:45s}): {weight:.4f}")
+                    else:
+                        print(f"⚠️  Weights row found but all values are invalid. Using default equal weights.")
+                        self.set_weights({col: 1.0 for col in self.variables_config.keys()})
+                except Exception as e:
+                    print(f"⚠️  Error processing weights: {str(e)}")
+                    print(f"   Using default equal weights instead.")
+                    self.set_weights({col: 1.0 for col in self.variables_config.keys()})
+            else:
+                print(f"⚠️  No weight row (HTA_Weight) found in the file.")
+                print(f"   ⓘ  Weights are required for MCDA analysis.")
+                print(f"   → Please provide weights using: set_weights({{...}}) or add HTA_Weight row to your CSV/XLSX file.")
             
             # Run the data consistency check to confirm there are no NaN or invalid values.
             return self.validate_data()
@@ -464,9 +514,64 @@ class HTA:
         # 5. BUILD THE RESULT TABLE
         res = pd.DataFrame({"Score": scores})
         res["Status"] = ["Accepted" if i in self.filtered_devices else "Refuse" for i in res.index]
-        res["Rank"] = res["Score"].rank(ascending=False, method="min").astype(int)
-        res.loc[res["Status"] == "Refuse", "Rank"] = 999
-        return res.sort_values(by="Rank")
+        res["Rank"] = res["Score"].rank(ascending=False, method="min")
+        res.loc[res["Status"] == "Refuse", "Score"] = 0.0
+        res.loc[res["Status"] == "Refuse", "Rank"] = float('nan')
+        res = res.sort_values(by="Rank")
+        
+        # 6. STORE RESULTS IN SELF.RESULTS STRUCTURE
+        self.results = {
+            "method": method,
+            "norm_method": norm_method,
+            "weights": self.weights.copy(),
+            "active_columns": active_cols,
+            "active_weights": active_weights.copy(),
+            "ranking": res,
+            "sensitivity": self.sensitivity_results if hasattr(self, 'sensitivity_results') else None,
+            "timestamp": pd.Timestamp.now()
+        }
+        
+        return res
+
+    def print_results(self):
+        """
+        Pretty-print the stored MCDA results from self.results.
+        Displays method info, weights, ranking, and sensitivity bounds (if available).
+        """
+        if self.results is None:
+            print("❌ No results stored. Run run_mcda() first!")
+            return
+        
+        print("\n" + "=" * 90)
+        print("   MCDA ANALYSIS RESULTS")
+        print("=" * 90)
+        
+        print(f"\n📋 Configuration:")
+        print(f"   MCDA Method:       {self.results['method']}")
+        print(f"   Normalization:     {self.results['norm_method']}")
+        print(f"   Timestamp:         {self.results['timestamp']}")
+        print(f"   Active Criteria:   {len(self.results['active_columns'])} / {len(self.variables_config)}")
+        
+        print(f"\n📊 Used Weights (after filtering):")
+        for col in self.results['active_columns']:
+            full_name = self.variables_config.get(col, {}).get("full_name", col)
+            w_value = self.results['active_weights'].get(col, 0.0)
+            print(f"   • {col:20s} = {w_value:7.4f}  ({full_name})")
+        
+        print(f"\n🏆 Ranking Results:")
+        ranking_df = self.results['ranking'][['Score', 'Status', 'Rank']].copy()
+        print(ranking_df.to_string())
+        
+        # Display sensitivity bounds if available
+        if self.results['sensitivity'] is not None:
+            print(f"\n⚙️  Weight Stability Bounds (Sensitivity Analysis):")
+            sens_df = self.results['sensitivity'][['w_min', 'w_max', 'delta_minus', 'delta_plus']].copy()
+            print(sens_df.to_string())
+        else:
+            print(f"\n⚙️  Sensitivity analysis not yet performed.")
+            print(f"   → Run: hta.find_stability_intervals() to compute weight bounds")
+        
+        print("\n" + "=" * 90 + "\n")
 
     def compare_approaches(self):
         """Compare result rankings across different normalization and MCDA method combinations."""

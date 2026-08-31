@@ -4,11 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hta-analytics"
-version = "0.1.6"
+version = "0.2.0"
 authors = [
-    { name="Vaše Jméno", email="vas.email@domena.cz" }
+    { name="Jiri MILLEK", email="jiri.millek@fbmi.cvut.cz" }
 ]
-description = "Pokročilý nástroj pro Health Technology Assessment (MCDA, citlivostní analýza)"
+description = "A comprehensive module for Health Technology Assessment (HTA).
+Provides load data from "CSV/XLSX" or synthetic data generation,
+variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW and VIKOR,
+with variant normalization techniques (Min-Max, Weitendorf),
+and robust weight sensitivity assessment using interval bisection algorithms."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
