@@ -1,24 +1,20 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+from hta.analyzer import HTA
 
-[project]
-name = "hta-analytics"
-version = "0.1.0"
-authors = [
-    { name="Vaše Jméno", email="vas.email@domena.cz" }
-]
-description = "Pokročilý nástroj pro Health Technology Assessment (MCDA, citlivostní analýza)"
-readme = "README.md"
-requires-python = ">=3.8"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
-dependencies = [
-    "pandas>=2.0.0",
-    "numpy>=1.20.0",
-    "matplotlib>=3.5.0",
-    "scipy>=1.7.0"
-]
+
+def test_analyzer_generates_configured_devices():
+    hta = HTA(n_devices=6)
+
+    assert hta.raw_data is not None
+    assert len(hta.devices) == 6
+    assert set(hta.filtered_devices) == set(hta.devices)
+    assert set(hta.variables_config).issubset(hta.raw_data.columns)
+
+
+def test_analyzer_runs_mcda_and_returns_ranking():
+    hta = HTA(n_devices=6)
+    ranking = hta.run_mcda(method="SAW", norm_method="minmax")
+
+    assert not ranking.empty
+    assert {"Score", "Status", "Rank"}.issubset(ranking.columns)
+    assert hta.results["method"] == "SAW"
+    assert hta.results["norm_method"] == "minmax"
