@@ -365,14 +365,116 @@ class HTA:
         self.weights = pd.Series({k: v / total for k, v in full_weights.items()})
         return self.weights
 
-    def apply_filters(self, filter_dict):
-        """Apply exclusion criteria (e.g., {'ce_cert': True})."""
-        self.filtered_devices = list(self.devices)
-        for col, target_val in filter_dict.items():
-            if col in self.raw_data.columns:
-                passed = self.raw_data[self.raw_data[col] == target_val].index
-                self.filtered_devices = [d for d in self.filtered_devices if d in passed]
-        print(f"\nFilter {filter_dict} applied. Proceeding with {len(self.filtered_devices)} out of {self.n_devices} devices.")
+    def _normalize_filter_rules(self, filter_spec):
+        """Normalize several filter syntaxes into a list of rules."""
+        if filter_spec is None:
+            return []
+
+        if isinstance(filter_spec, dict):
+            if all(isinstance(v, (dict, list, tuple)) for v in filter_spec.values()) and not filter_spec:
+                return []
+
+            if all(key not in ("column", "operator") for key in filter_spec.keys()):
+                normalized = []
+                for col, target_val in filter_spec.items():
+                    normalized.append({"column": col, "operator": "eq", "value": target_val})
+                return normalized
+
+            return [filter_spec]
+
+        if isinstance(filter_spec, (list, tuple)):
+            normalized = []
+            for rule in filter_spec:
+                if isinstance(rule, dict):
+                    normalized.append(rule)
+                else:
+                    raise ValueError(f"Unsupported filter rule format: {rule!r}")
+            return normalized
+
+        raise ValueError(f"Unsupported filter specification: {filter_spec!r}")
+
+    def _evaluate_filter_rule(self, rule):
+        """Evaluate a single rule and return a boolean Series mask."""
+        if not isinstance(rule, dict):
+            raise ValueError(f"Filter rule must be a dict, got {type(rule).__name__}")
+
+        col = rule.get("column") or rule.get("col")
+        operator = str(rule.get("operator") or rule.get("op") or "eq").lower()
+
+        if col is None:
+            raise ValueError("A filter rule must contain a 'column' key.")
+        if col not in self.raw_data.columns:
+            raise KeyError(f"Column '{col}' does not exist in the current dataset.")
+
+        series = self.raw_data[col]
+        if operator == "eq":
+            value = rule.get("value")
+            return series == value
+        if operator == "neq":
+            value = rule.get("value")
+            return series != value
+        if operator == "gt":
+            value = rule.get("value")
+            return series > value
+        if operator == "gte":
+            value = rule.get("value")
+            return series >= value
+        if operator == "lt":
+            value = rule.get("value")
+            return series < value
+        if operator == "lte":
+            value = rule.get("value")
+            return series <= value
+        if operator == "between":
+            lower = rule.get("lower")
+            upper = rule.get("upper")
+            if lower is None or upper is None:
+                raise ValueError(f"Filter rule for '{col}' uses 'between' operator but no 'lower'/'upper' values were provided.")
+            return (series >= lower) & (series <= upper)
+
+        raise ValueError(f"Unsupported filter operator: '{operator}'")
+
+    def apply_filters(self, filter_spec):
+        """Apply one or more exclusion criteria.
+
+        Supported formats:
+        - {'ce_cert': True}
+        - [{'column': 'ce_cert', 'operator': 'eq', 'value': True}]
+        - [{'column': 'price', 'operator': 'between', 'lower': 100000, 'upper': 200000}]
+        """
+        rules = self._normalize_filter_rules(filter_spec)
+
+        if not rules:
+            self.filtered_devices = list(self.devices)
+            print("\nNo filter rules applied. All devices remain active.")
+            return self.filtered_devices
+
+        mask = pd.Series(True, index=self.raw_data.index)
+        for rule in rules:
+            mask &= self._evaluate_filter_rule(rule)
+
+        self.filtered_devices = list(self.raw_data.index[mask].tolist())
+        print(f"\nFilter rules applied: {rules}. Proceeding with {len(self.filtered_devices)} out of {self.n_devices} devices.")
+        return self.filtered_devices
+
+    def export_results(self, output_path):
+        """Export the current ranking results to CSV or XLSX."""
+        if self.results is None or self.results.get("ranking") is None:
+            raise ValueError("No results available. Run run_mcda() before exporting.")
+
+        output_path = str(output_path)
+        ranking_df = self.results["ranking"].copy()
+
+        if output_path.lower().endswith(".csv"):
+            ranking_df.to_csv(output_path)
+        elif output_path.lower().endswith((".xlsx", ".xls")):
+            ranking_df.to_excel(output_path)
+        else:
+            output_path = output_path + ".csv"
+            ranking_df.to_csv(output_path)
+
+        print(f"\n💾 Results exported to: {output_path}")
+        return output_path
 
     def normalize_data(self, method="weitendorf"):
         """Alternative normalization methods: 'minmax', 'weitendorf', 'z_score'."""
