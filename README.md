@@ -1,4 +1,4 @@
-# HTA Analytics
+# HTA Analytics - GUI version under construction (comprehensive import/filter/preview/export)
 
 A robust and comprehensive Python library for **Health Technology Assessment (HTA)**. Designed specifically for evaluating medical devices and clinical systems using Multi-Criteria Decision Analysis (MCDA). 
 
