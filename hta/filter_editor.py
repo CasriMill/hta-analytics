@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QPushButton,
     QVBoxLayout,
@@ -27,16 +26,14 @@ class FilterEditor(QWidget):
         self.group = QGroupBox("Filters")
         self.col_combo = QComboBox()
         self.op_combo = QComboBox()
-        self.value_box = QDoubleSpinBox()
-        self.value_box.setRange(-1e9, 1e9)
-        self.value_box.setDecimals(6)
-        self.lower_box = QDoubleSpinBox()
-        self.lower_box.setRange(-1e9, 1e9)
-        self.lower_box.setDecimals(6)
-        self.upper_box = QDoubleSpinBox()
-        self.upper_box.setRange(-1e9, 1e9)
-        self.upper_box.setDecimals(6)
-        self.bool_check = QCheckBox("True")
+        self.value_box = QLineEdit()
+        self.value_box.setPlaceholderText("Set value")
+        self.lower_box = QLineEdit()
+        self.lower_box.setPlaceholderText("Set lower value")
+        self.upper_box = QLineEdit()
+        self.upper_box.setPlaceholderText("Set upper value")
+        self.choice_box = QComboBox()
+        self.column_info = QLabel("Select a column")
         self.list_widget = QListWidget()
         self.status_label = QLabel("Not applied")
 
@@ -50,13 +47,17 @@ class FilterEditor(QWidget):
         self.op_combo.currentTextChanged.connect(self.update_visibility)
 
         form.addRow("Column:", self.col_combo)
+        form.addRow("Data:", self.column_info)
         form.addRow("Operator:", self.op_combo)
         form.addRow("Value:", self.value_box)
         form.addRow("Lower:", self.lower_box)
         form.addRow("Upper:", self.upper_box)
-        form.addRow("Bool value:", self.bool_check)
+        form.addRow("Choice:", self.choice_box)
 
-        buttons = QHBoxLayout()
+        form_panel = QWidget()
+        form_panel.setLayout(form)
+
+        buttons = QVBoxLayout()
         add_btn = QPushButton("Add filter")
         add_btn.clicked.connect(self.add_filter_rule)
         remove_btn = QPushButton("Remove selected")
@@ -70,10 +71,13 @@ class FilterEditor(QWidget):
         buttons.addWidget(remove_btn)
         buttons.addWidget(clear_btn)
         buttons.addWidget(apply_btn)
+        buttons.addStretch()
 
         layout = QVBoxLayout(self.group)
-        layout.addLayout(form)
-        layout.addLayout(buttons)
+        controls = QHBoxLayout()
+        controls.addWidget(form_panel, 2)
+        controls.addLayout(buttons, 1)
+        layout.addLayout(controls)
         layout.addWidget(self.status_label)
         layout.addWidget(self.list_widget)
 
@@ -93,23 +97,87 @@ class FilterEditor(QWidget):
     def on_column_changed(self):
         column = self.col_combo.currentText()
         if not column or not self.hta.variables_config:
+            self.column_info.setText("Select a column")
             return
-        dtype = self.hta.variables_config.get(column, {}).get("dtype")
+        dtype = self._column_dtype(column)
         if dtype == "bool":
             self.op_combo.clear()
             self.op_combo.addItems(["eq", "neq"])
-        else:
+            self._set_choice_values(column, [True, False])
+            self.column_info.setText("bool | True / False")
+        elif dtype == "int":
             self.op_combo.clear()
             self.op_combo.addItems(["eq", "neq", "gt", "gte", "lt", "lte", "between"])
+            self._set_choice_values(column)
+            self._set_numeric_values(column, dtype)
+        elif dtype == "float":
+            self.op_combo.clear()
+            self.op_combo.addItems(["eq", "neq", "gt", "gte", "lt", "lte", "between"])
+            self.choice_box.clear()
+            self._set_numeric_values(column, dtype)
+        else:
+            self.op_combo.clear()
+            self.op_combo.addItems(["eq", "neq"])
+            self._set_choice_values(column)
+            self.column_info.setText(f"category | {self.choice_box.count()} unique values")
         self.update_visibility()
 
+    def _column_dtype(self, column):
+        configured_dtype = self.hta.variables_config.get(column, {}).get("dtype")
+        if configured_dtype:
+            return configured_dtype
+        if self.hta.raw_data is not None and column in self.hta.raw_data:
+            return str(self.hta.raw_data[column].dtype)
+        return "float"
+
+    def _set_numeric_values(self, column, dtype):
+        if self.hta.raw_data is None or column not in self.hta.raw_data:
+            self.column_info.setText(f"{dtype}")
+            return
+
+        series = self.hta.raw_data[column].dropna()
+        if series.empty:
+            self.column_info.setText(f"{dtype} | no values")
+            return
+
+        minimum = float(series.min())
+        mean = float(series.mean())
+        median = float(series.median())
+        maximum = float(series.max())
+        self.column_info.setText(
+            f"{dtype} | min {minimum:g} | mean {mean:g} | median {median:g} | max {maximum:g}"
+        )
+        self.value_box.setText(f"{median:g}")
+        self.lower_box.setText(f"{minimum:g}")
+        self.upper_box.setText(f"{maximum:g}")
+
+    def _set_choice_values(self, column, values=None):
+        self.choice_box.clear()
+        if values is None and self.hta.raw_data is not None and column in self.hta.raw_data:
+            values = sorted(self.hta.raw_data[column].dropna().unique().tolist(), key=str)
+        for value in values or []:
+            self.choice_box.addItem(str(value), userData=value)
+
+    def _numeric_value(self, field):
+        try:
+            return float(field.text())
+        except ValueError as exc:
+            raise ValueError("Filter value must be numeric.") from exc
+
     def update_visibility(self):
+        column = self.col_combo.currentText()
         operator = self.op_combo.currentText()
         is_between = operator == "between"
-        self.value_box.setVisible(not is_between)
+        dtype = self._column_dtype(column) if column else ""
+        is_choice = dtype in {"bool", "category", "str", "object"}
+        is_choice = is_choice or (dtype == "int" and operator in {"eq", "neq"})
+        self.value_box.setVisible(not is_between and not is_choice)
         self.lower_box.setVisible(is_between)
         self.upper_box.setVisible(is_between)
-        self.bool_check.setVisible(operator in {"eq", "neq"})
+        self.choice_box.setVisible(not is_between and is_choice)
+
+    def _is_numeric_column(self, column):
+        return self._column_dtype(column) in {"int", "float"}
 
     def add_filter_rule(self):
         column = self.col_combo.currentText()
@@ -117,13 +185,16 @@ class FilterEditor(QWidget):
             return
         operator = self.op_combo.currentText()
         if operator in {"eq", "neq"}:
-            dtype = self.hta.variables_config.get(column, {}).get("dtype")
-            value = self.bool_check.isChecked() if dtype == "bool" else self.value_box.value()
+            dtype = self._column_dtype(column)
+            if dtype in {"bool", "int"} or dtype not in {"float"}:
+                value = self.choice_box.currentData()
+            else:
+                value = self._numeric_value(self.value_box)
             rule = {"column": column, "operator": operator, "value": value}
         elif operator == "between":
-            rule = {"column": column, "operator": operator, "lower": self.lower_box.value(), "upper": self.upper_box.value()}
+            rule = {"column": column, "operator": operator, "lower": self._numeric_value(self.lower_box), "upper": self._numeric_value(self.upper_box)}
         else:
-            rule = {"column": column, "operator": operator, "value": self.value_box.value()}
+            rule = {"column": column, "operator": operator, "value": self._numeric_value(self.value_box)}
 
         self.filter_rules.append(rule)
         if operator == "between":

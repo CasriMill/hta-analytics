@@ -1,0 +1,13 @@
+Device_ID;price;op_costs;efficacy;consumables;training;accuracy;service_life;ce_cert;connectivity_eth;connectivity_wifi;connectivity_usb;connectivity_his;protocol_hl7;color;shape;minTemp;weight
+HTA_Type;cost;cost;benefit;cost;cost;benefit;benefit;benefit;benefit;benefit;benefit;benefit;benefit;category;category;benefit;cost
+HTA_Dtype;int;int;float;float;float;int;int;bool;bool;bool;bool;bool;bool;category;category;int;float
+HTA_FullName;Purchase Price (EUR);Annual Operational Costs (EUR);Clinical Efficacy of Procedure (%);Consumables Cost per Examination (EUR);Staff Training Cost per Course (EUR);Measurement Accuracy Level (‰);Post-Warranty Support & Parts Availability (years);CE Certification Status;Ethernet Network Connectivity;Wireless WiFi Connectivity;USB Data Interface Support;Hospital Information System (HIS) Integration;HL7 Protocol Compliant Data Structure;global color of the device;main shape of device;minimal ambient working temperature;working weight of device
+HTA_Weight;0.20;0.10;0.25;0.08;0.05;0.12;0.10;0.05;0.01;0.01;0.01;0.01;0.01;0.00;0.00;0.00;0.00
+Device_1;150000;2500;92.5;12.50;1200;995;7;True;True;True;True;True;True;red;cube;18°C;12.0kg
+Device_2;125000;1800;85.0;8.75;800;985;5;True;True;False;True;True;False;pastel_blue;sfere;19°C;13.5kg
+Device_3;180000;3200;96.0;15.00;1500;998;8;True;True;True;True;True;True;pastel_green;cylinder;20°C;15.0kg
+Device_4;95000;1200;78.5;5.50;500;975;3;False;False;True;True;False;False;pastel_yellow;cube;21°C;16.5kg
+Device_5;165000;2800;89.5;11.25;1100;992;6;True;True;True;True;True;True;pastel_pink;sfere;22°C;18.0kg
+Device_6;110000;1500;82.0;7.50;700;980;4;True;False;True;True;False;True;pastel_purple;cylinder;18°C;19.0kg
+Device_7;195000;3500;94.0;16.00;1600;997;9;True;True;True;True;True;True;pastel_orange;cube;20°C;20.0kg
+Device_8;140000;2200;88.0;10.00;1000;988;5;True;True;False;True;True;False;pastel_cyan;sfere;22°C;21.0kg

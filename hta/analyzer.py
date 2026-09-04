@@ -15,6 +15,9 @@ and robust weight sensitivity assessment using interval bisection algorithms.
 :status:      Open Source
 """
 
+import re
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -40,6 +43,7 @@ class HTA:
         self.variables_config = {} if variables_config is None else variables_config
             
         self.raw_data = None
+        self.dataset_label = "Generated dataset" if self.n_devices is not None else "No dataset"
         self.weights = None
         self.normalized_data = None
         self._silence_info = False
@@ -96,6 +100,7 @@ class HTA:
         If not found, a warning is displayed and you must call set_weights() manually.
         """
         print(f"\n📂 Reading international HTA data from file: {file_path}")
+        self.dataset_label = Path(file_path).name
         try:
             # Load the source file (automatic separator detection for CSV)
             if file_path.endswith('.csv'):
@@ -143,9 +148,9 @@ class HTA:
             for col in self.raw_data.columns:
                 dt = self.variables_config[col]["dtype"]
                 if dt == "int":
-                    self.raw_data[col] = pd.to_numeric(self.raw_data[col]).round().astype(int)
+                    self.raw_data[col] = self._coerce_numeric_column(self.raw_data[col], col).round().astype(int)
                 elif dt == "float":
-                    self.raw_data[col] = pd.to_numeric(self.raw_data[col]).astype(float)
+                    self.raw_data[col] = self._coerce_numeric_column(self.raw_data[col], col).astype(float)
                 elif dt == "bool":
                     # Convert values such as 'True'/'False' or 1/0 into proper boolean types
                     self.raw_data[col] = self.raw_data[col].map({'True': True, 'False': False, 1: True, 0: False, True: True, False: False})
@@ -193,6 +198,48 @@ class HTA:
             print(f"❌ Critical error in import of file: {str(e)}")
             self.raw_data = None
             return False
+
+    @staticmethod
+    def _coerce_numeric_column(series, column):
+        """Convert numeric values and remove one shared textual unit if present."""
+        numeric = pd.to_numeric(series, errors="coerce")
+        if numeric.notna().all():
+            return numeric
+
+        parsed = []
+        prefixes = []
+        suffixes = []
+        for value in series.astype(str):
+            match = re.match(
+                r"^\s*(.*?)\s*([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+))\s*(.*?)\s*$",
+                value,
+            )
+            if match is None:
+                raise ValueError(
+                    f"Column '{column}' contains values that are not numeric and do not share a removable unit."
+                )
+            prefix, number, suffix = match.groups()
+            prefixes.append(prefix)
+            suffixes.append(suffix)
+            parsed.append(number)
+
+        shared_prefix = prefixes[0]
+        shared_suffix = suffixes[0]
+        if (any(prefix != shared_prefix for prefix in prefixes) or
+                any(suffix != shared_suffix for suffix in suffixes) or
+                not (shared_prefix or shared_suffix)):
+            raise ValueError(
+                f"Column '{column}' contains inconsistent text around numeric values."
+            )
+
+        decimal_values = [value.replace(",", ".") for value in parsed]
+        numeric = pd.to_numeric(pd.Series(decimal_values, index=series.index), errors="coerce")
+        if numeric.isna().any():
+            raise ValueError(f"Column '{column}' contains invalid numeric values.")
+        print(
+            f"ℹ️ Removed shared unit '{(shared_prefix + shared_suffix).strip()}' from column '{column}'."
+        )
+        return numeric
 
     def validate_data(self):
         """Perform strict validation of the format and consistency of loaded or generated data."""
@@ -481,6 +528,8 @@ class HTA:
         self.normalized_data = pd.DataFrame(index=self.devices, columns=self.raw_data.columns)
         
         for col, cfg in self.variables_config.items():
+            if cfg.get("dtype") not in {"int", "float", "bool"}:
+                continue
             if cfg.get("dtype") == "bool":
                 self.normalized_data[col] = self.raw_data[col].astype(float) if cfg["type"] == "benefit" else 1.0 - self.raw_data[col].astype(float)
                 continue
@@ -525,6 +574,8 @@ class HTA:
         """
         active_cols = []
         for col in self.variables_config.keys():
+            if self.variables_config[col].get("dtype") not in {"int", "float", "bool"}:
+                continue
             # Use only raw data for devices that passed the filter
             raw_series = self.raw_data.loc[self.filtered_devices, col]
             
@@ -568,9 +619,16 @@ class HTA:
         # Initialize default weights if they have not been set yet
         if self.weights is None:
             self.set_weights({c: 1 for c in self.variables_config.keys()})
+
+        if len(self.filtered_devices) < 2:
+            raise ValueError(
+                "At least two devices must remain after filtering for MCDA analysis."
+            )
             
         # 1. COLUMN ANALYSIS: Find variables that have real discriminating ability
         active_cols = self._prepare_active_dimensions()
+        if not active_cols:
+            raise ValueError("No numeric or boolean MCDA criteria remain after filtering.")
         
         # 2. WEIGHT RECALCULATION: Remove irrelevant criteria and normalize the total back to 100%
         active_weights = self._adjust_active_weights(active_cols)
@@ -618,7 +676,8 @@ class HTA:
         res["Status"] = ["Accepted" if i in self.filtered_devices else "Refuse" for i in res.index]
         res["Rank"] = res["Score"].rank(ascending=False, method="min")
         res.loc[res["Status"] == "Refuse", "Score"] = 0.0
-        res.loc[res["Status"] == "Refuse", "Rank"] = float('nan')
+        res.loc[res["Status"] == "Refuse", "Rank"] = pd.NA
+        res["Rank"] = res["Rank"].astype("Int64")
         res = res.sort_values(by="Rank")
         
         # 6. STORE RESULTS IN SELF.RESULTS STRUCTURE

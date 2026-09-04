@@ -52,6 +52,8 @@ class HTAGUI(QMainWindow):
         self.data_table.setAlternatingRowColors(True)
         self.results_table = QTableWidget()
         self.results_table.setAlternatingRowColors(True)
+        self.ranked_data_table = QTableWidget()
+        self.ranked_data_table.setAlternatingRowColors(True)
 
         self.filter_editor = FilterEditor(self.hta)
         self.weights_editor = WeightsEditor(self.hta)
@@ -126,6 +128,7 @@ class HTAGUI(QMainWindow):
         data_panel_layout.addWidget(QLabel("Data preview")); data_panel_layout.addWidget(self.data_table)
         results_panel = QWidget(); results_panel_layout = QVBoxLayout(results_panel)
         results_panel_layout.addWidget(QLabel("Results")); results_panel_layout.addWidget(self.results_table)
+        results_panel_layout.addWidget(QLabel("Raw data ordered by rank")); results_panel_layout.addWidget(self.ranked_data_table)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.weights_editor.widget(), "Weights")
@@ -161,6 +164,7 @@ class HTAGUI(QMainWindow):
             return
 
         df = self.hta.raw_data.copy()
+        df.insert(0, "Device_ID", df.index)
         rows, cols = df.shape
         self.data_table.setRowCount(rows)
         self.data_table.setColumnCount(cols)
@@ -177,9 +181,12 @@ class HTAGUI(QMainWindow):
         if self.hta.results is None or self.hta.results.get("ranking") is None:
             self.results_table.setRowCount(0)
             self.results_table.setColumnCount(0)
+            self.ranked_data_table.setRowCount(0)
+            self.ranked_data_table.setColumnCount(0)
             return
 
         df = self.hta.results["ranking"].copy()
+        df.insert(0, "Device_ID", df.index)
         rows, cols = df.shape
         self.results_table.setRowCount(rows)
         self.results_table.setColumnCount(cols)
@@ -191,6 +198,22 @@ class HTAGUI(QMainWindow):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.results_table.setItem(row_index, col_index, item)
+
+        if self.hta.raw_data is None:
+            return
+        ordered = self.hta.raw_data.reindex(df.index).copy()
+        ordered.insert(0, "Device_ID", ordered.index)
+        ordered.insert(1, "Rank", df["Rank"].to_numpy())
+        rows, cols = ordered.shape
+        self.ranked_data_table.setRowCount(rows)
+        self.ranked_data_table.setColumnCount(cols)
+        self.ranked_data_table.setHorizontalHeaderLabels(list(ordered.columns))
+        for row_index in range(rows):
+            for col_index in range(cols):
+                value = ordered.iloc[row_index, col_index]
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                self.ranked_data_table.setItem(row_index, col_index, item)
 
     def refresh_chart(self):
         self.chart_panel.update_chart(self.hta)
