@@ -20,4 +20,5 @@ def test_gui_can_initialize():
     ]
     assert window.chart_panel.ranking_canvas is not None
     assert window.chart_panel.sensitivity_canvas is not None
+    assert window.chart_panel.relative_sensitivity_canvas is not None
     window.close()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
@@ -58,6 +60,7 @@ class HTAGUI(QMainWindow):
         self.filter_editor = FilterEditor(self.hta)
         self.weights_editor = WeightsEditor(self.hta)
         self.chart_panel = ChartPanel()
+        self.chart_panel.export_requested.connect(self.export_chart_png)
         self.filter_editor.status_changed.connect(self.set_status)
         self.weights_editor.status_changed.connect(self.set_status)
 
@@ -118,17 +121,22 @@ class HTAGUI(QMainWindow):
         export_csv_btn.clicked.connect(self.export_csv)
         export_xlsx_btn = QPushButton("Export XLSX")
         export_xlsx_btn.clicked.connect(self.export_xlsx)
-        for button in (run_btn, export_csv_btn, export_xlsx_btn):
-            button.setMinimumHeight(34)
+        run_btn.setMinimumHeight(34)
         action_layout.addWidget(run_btn)
-        action_layout.addWidget(export_csv_btn)
-        action_layout.addWidget(export_xlsx_btn)
 
         data_panel = QWidget(); data_panel_layout = QVBoxLayout(data_panel)
         data_panel_layout.addWidget(QLabel("Data preview")); data_panel_layout.addWidget(self.data_table)
         results_panel = QWidget(); results_panel_layout = QVBoxLayout(results_panel)
+        results_export_layout = QHBoxLayout()
+        export_csv_btn = QPushButton("Export CSV")
+        export_csv_btn.clicked.connect(self.export_csv)
+        export_xlsx_btn = QPushButton("Export XLSX")
+        export_xlsx_btn.clicked.connect(self.export_xlsx)
+        results_export_layout.addWidget(export_csv_btn)
+        results_export_layout.addWidget(export_xlsx_btn)
         results_panel_layout.addWidget(QLabel("Results")); results_panel_layout.addWidget(self.results_table)
         results_panel_layout.addWidget(QLabel("Raw data ordered by rank")); results_panel_layout.addWidget(self.ranked_data_table)
+        results_panel_layout.addLayout(results_export_layout)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.weights_editor.widget(), "Weights")
@@ -243,7 +251,9 @@ class HTAGUI(QMainWindow):
         if not path:
             return
         self.hta = HTA()
-        self.hta.load_data(path)
+        if not self.hta.load_data(path):
+            QMessageBox.critical(self, "Import error", f"Could not import dataset:\n{path}")
+            return
         self.filter_editor.set_hta(self.hta)
         self.weights_editor.set_hta(self.hta)
         self.filter_editor.clear_filters()
@@ -279,8 +289,9 @@ class HTAGUI(QMainWindow):
             QMessageBox.warning(self, "No results", "Run analysis first.")
             return
         path, _ = QFileDialog.getSaveFileName(self, "Save ranking as CSV", "results.csv", "CSV Files (*.csv)")
-        if path:
+        if path and self._confirm_overwrite(path):
             self.hta.export_results(path)
+            self.statusBar().showMessage(f"Results exported to {path}", 4000)
             self.set_status(f"Exported CSV to {path}")
 
     def export_xlsx(self):
@@ -288,9 +299,48 @@ class HTAGUI(QMainWindow):
             QMessageBox.warning(self, "No results", "Run analysis first.")
             return
         path, _ = QFileDialog.getSaveFileName(self, "Save ranking as XLSX", "results.xlsx", "Excel Files (*.xlsx)")
-        if path:
+        if path and self._confirm_overwrite(path):
             self.hta.export_results(path)
-            self.set_status(f"Exported XLSX to {path}")
+            self.statusBar().showMessage(f"Results exported to {path}", 4000)
+
+    def _confirm_overwrite(self, path):
+        if not os.path.exists(path):
+            return True
+        answer = QMessageBox.question(
+            self,
+            "File already exists",
+            f"The file already exists:\n{path}\n\nOverwrite it?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return answer == QMessageBox.Yes
+
+    def export_chart_png(self, chart_name):
+        if chart_name == "ranking":
+            figure = self.chart_panel.ranking_figure
+            title = "Save ranking chart as PNG"
+            default_name = "ranking.png"
+        elif chart_name == "sensitivity":
+            figure = self.chart_panel.sensitivity_figure
+            title = "Save sensitivity chart as PNG"
+            default_name = "sensitivity.png"
+        elif chart_name == "relative_sensitivity":
+            figure = self.chart_panel.relative_sensitivity_figure
+            title = "Save relative sensitivity chart as PNG"
+            default_name = "relative_sensitivity.png"
+        else:
+            raise ValueError(f"Unknown chart name: {chart_name}")
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            title,
+            default_name,
+            "PNG Files (*.png)",
+        )
+        if path and self._confirm_overwrite(path):
+            figure.savefig(path, dpi=600, format="png", bbox_inches="tight")
+            self.statusBar().showMessage(f"Chart exported to {path}", 4000)
+            self.set_status(f"Exported {chart_name} chart to {path}")
 
 
 if __name__ == "__main__":

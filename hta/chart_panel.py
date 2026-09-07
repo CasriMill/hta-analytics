@@ -2,37 +2,67 @@ from __future__ import annotations
 
 import numpy as np
 
+from PySide6.QtCore import Signal
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 
 class ChartPanel(QWidget):
+    export_requested = Signal(str)
+
     def __init__(self):
         super().__init__()
-        self.ranking_figure = Figure(figsize=(5, 3), dpi=100)
+        self.ranking_figure = Figure(figsize=(8, 5), dpi=100)
         self.ranking_ax = self.ranking_figure.add_subplot(111)
         self.ranking_canvas = FigureCanvasQTAgg(self.ranking_figure)
-        self.sensitivity_figure = Figure(figsize=(5, 3), dpi=100)
+        self.sensitivity_figure = Figure(figsize=(8, 5), dpi=100)
         self.sensitivity_ax = self.sensitivity_figure.add_subplot(111)
         self.sensitivity_canvas = FigureCanvasQTAgg(self.sensitivity_figure)
+        self.relative_sensitivity_figure = Figure(figsize=(8, 5), dpi=100)
+        self.relative_sensitivity_ax = self.relative_sensitivity_figure.add_subplot(111)
+        self.relative_sensitivity_canvas = FigureCanvasQTAgg(
+            self.relative_sensitivity_figure
+        )
         self.title = QLabel("Ranking and sensitivity analysis")
         self.sensitivity_scope = QLabel("Sensitivity intervals are valid only for the current dataset and active filters.")
+        self.export_ranking_button = QPushButton("Export ranking PNG")
+        self.export_ranking_button.clicked.connect(
+            lambda: self.export_requested.emit("ranking")
+        )
+        self.export_sensitivity_button = QPushButton("Export sensitivity PNG")
+        self.export_sensitivity_button.clicked.connect(
+            lambda: self.export_requested.emit("sensitivity")
+        )
+        self.export_relative_sensitivity_button = QPushButton(
+            "Export relative sensitivity PNG"
+        )
+        self.export_relative_sensitivity_button.clicked.connect(
+            lambda: self.export_requested.emit("relative_sensitivity")
+        )
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.title)
         layout.addWidget(self.sensitivity_scope)
-        charts = QHBoxLayout()
-        charts.addWidget(self.ranking_canvas)
-        charts.addWidget(self.sensitivity_canvas)
-        layout.addLayout(charts)
+        export_buttons = QHBoxLayout()
+        export_buttons.addWidget(self.export_ranking_button)
+        export_buttons.addWidget(self.export_sensitivity_button)
+        export_buttons.addWidget(self.export_relative_sensitivity_button)
+        layout.addLayout(export_buttons)
+        layout.addWidget(self.ranking_canvas, 1)
+        layout.addWidget(self.sensitivity_canvas, 1)
+        layout.addWidget(self.relative_sensitivity_canvas, 1)
 
     def update_chart(self, hta):
         self.ranking_ax.clear()
         self.sensitivity_ax.clear()
+        self.relative_sensitivity_ax.clear()
         if hta.results is None or hta.results.get("ranking") is None:
             self.ranking_ax.text(0.5, 0.5, "No results", ha="center", va="center")
             self.sensitivity_ax.text(0.5, 0.5, "No results", ha="center", va="center")
+            self.relative_sensitivity_ax.text(
+                0.5, 0.5, "No results", ha="center", va="center"
+            )
         else:
             ranking = hta.results["ranking"].copy()
             accepted = ranking[ranking["Status"] == "Accepted"].sort_values("Rank")
@@ -88,10 +118,48 @@ class ChartPanel(QWidget):
                     f"{len(hta.filtered_devices)} of {len(hta.devices)} devices"
                 )
                 self.sensitivity_ax.tick_params(axis="y", labelsize=8)
+                self.relative_sensitivity_ax.set_xscale("symlog", linthresh=0.1)
+                self.relative_sensitivity_ax.axvspan(
+                    -0.1, 0.1, color="gray", alpha=0.08
+                )
+                self.relative_sensitivity_ax.axvline(
+                    0, color="black", linewidth=1.5, label="Current weight"
+                )
+                for position, (_, values) in zip(positions, sensitivity.iterrows()):
+                    self.relative_sensitivity_ax.hlines(
+                        position,
+                        float(values["delta_minus"]),
+                        float(values["delta_plus"]),
+                        color="#C0392B",
+                        linewidth=10,
+                        alpha=0.6,
+                    )
+                self.relative_sensitivity_ax.set_yticks(positions)
+                self.relative_sensitivity_ax.set_yticklabels(labels)
+                self.relative_sensitivity_ax.set_xticks(
+                    [-1.0, -0.5, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.5, 1.0]
+                )
+                self.relative_sensitivity_ax.set_xticklabels(
+                    ["-1.0", "-0.5", "-0.2", "-0.1", "-0.05", "0",
+                     "0.05", "0.1", "0.2", "0.5", "1.0"]
+                )
+                self.relative_sensitivity_ax.set_xlim(-1.1, 1.1)
+                self.relative_sensitivity_ax.set_xlabel("Relative weight change")
+                self.relative_sensitivity_ax.set_title("Relative weight sensitivity")
+                self.relative_sensitivity_ax.grid(
+                    True, linestyle="--", alpha=0.4, axis="x"
+                )
+                self.relative_sensitivity_ax.legend(loc="upper right")
+                self.relative_sensitivity_ax.tick_params(axis="y", labelsize=8)
             except Exception:
                 self.sensitivity_ax.text(0.5, 0.5, "Sensitivity unavailable", ha="center", va="center")
+                self.relative_sensitivity_ax.text(
+                    0.5, 0.5, "Sensitivity unavailable", ha="center", va="center"
+                )
 
         self.ranking_figure.tight_layout()
         self.sensitivity_figure.tight_layout()
+        self.relative_sensitivity_figure.tight_layout()
         self.ranking_canvas.draw()
         self.sensitivity_canvas.draw()
+        self.relative_sensitivity_canvas.draw()

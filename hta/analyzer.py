@@ -16,6 +16,7 @@ and robust weight sensitivity assessment using interval bisection algorithms.
 """
 
 import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +48,8 @@ class HTA:
         self.weights = None
         self.normalized_data = None
         self._silence_info = False
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="replace")
         
         # Results storage structure (populated after run_mcda)
         self.results = None
@@ -60,7 +63,7 @@ class HTA:
                 "efficacy": {"full_name": "Clinical Efficacy of Procedure (%)", "range": (70, 99), "type": "benefit", "dtype": "float", "std": 6, "skewness": -2, "round_to": 1},
                 "consumables": {"full_name": "Consumables Cost per Examination (EUR)", "range": (5, 20), "type": "cost", "dtype": "float", "std": 2, "skewness": 1.5, "round_to": 1},
                 "training": {"full_name": "Staff Training Cost per Course (EUR)", "range": (500, 2000), "type": "cost", "dtype": "float", "std": 300, "skewness": 1.2, "round_to": 0},
-                "accuracy": {"full_name": "Measurement Accuracy Level (‰)", "range": (975, 999), "type": "benefit", "dtype": "int", "std": 3, "skewness": 1.5},
+                "accuracy": {"full_name": "Measurement Accuracy Level (per mille)", "range": (975, 999), "type": "benefit", "dtype": "int", "std": 3, "skewness": 1.5},
                 "service_life": {"full_name": "Post-Warranty Support & Parts Availability (years)", "range": (3, 10), "type": "benefit", "dtype": "int"},
                 "ce_cert": {"full_name": "CE Certification Status", "type": "benefit", "dtype": "bool", "prob_true": 0.99},
                 "connectivity_eth": {"full_name": "Ethernet Network Connectivity", "type": "benefit", "dtype": "bool", "prob_true": 0.8},
@@ -99,7 +102,7 @@ class HTA:
         If HTA_Weight row is found, weights are automatically imported and processed.
         If not found, a warning is displayed and you must call set_weights() manually.
         """
-        print(f"\n📂 Reading international HTA data from file: {file_path}")
+        print(f"\nReading international HTA data from file: {file_path}")
         self.dataset_label = Path(file_path).name
         try:
             # Load the source file (automatic separator detection for CSV)
@@ -160,7 +163,7 @@ class HTA:
             self.filtered_devices = list(self.devices)
             self.n_devices = len(self.devices)
             
-            print(f"✅ Succesfull import of {self.n_devices} devices.")
+            print(f"Successful import of {self.n_devices} devices.")
             
             # --- PROCESS IMPORTED WEIGHTS (IF PRESENT) ---
             if weights_imported:
@@ -175,27 +178,27 @@ class HTA:
                     
                     if weights_dict:
                         self.set_weights(weights_dict)
-                        print(f"📊 Weights imported successfully from file:")
+                        print("Weights imported successfully from file:")
                         for var, weight in self.weights.items():
                             full_name = self.variables_config.get(var, {}).get("full_name", var)
-                            print(f"   • {var:20s} ({full_name:45s}): {weight:.4f}")
+                            print(f"   - {var:20s} ({full_name:45s}): {weight:.4f}")
                     else:
-                        print(f"⚠️  Weights row found but all values are invalid. Using default equal weights.")
+                        print("Weights row found but all values are invalid. Using default equal weights.")
                         self.set_weights({col: 1.0 for col in self.variables_config.keys()})
                 except Exception as e:
-                    print(f"⚠️  Error processing weights: {str(e)}")
-                    print(f"   Using default equal weights instead.")
+                    print(f"Error processing weights: {str(e)}")
+                    print("Using default equal weights instead.")
                     self.set_weights({col: 1.0 for col in self.variables_config.keys()})
             else:
-                print(f"⚠️  No weight row (HTA_Weight) found in the file.")
-                print(f"   ⓘ  Weights are required for MCDA analysis.")
-                print(f"   → Please provide weights using: set_weights({{...}}) or add HTA_Weight row to your CSV/XLSX file.")
+                print("No weight row (HTA_Weight) found in the file.")
+                print("Weights are required for MCDA analysis.")
+                print("Please provide weights using: set_weights({...}) or add HTA_Weight row to your CSV/XLSX file.")
             
             # Run the data consistency check to confirm there are no NaN or invalid values.
             return self.validate_data()
             
         except Exception as e:
-            print(f"❌ Critical error in import of file: {str(e)}")
+            print(f"Critical error in import of file: {str(e)}")
             self.raw_data = None
             return False
 
@@ -237,26 +240,26 @@ class HTA:
         if numeric.isna().any():
             raise ValueError(f"Column '{column}' contains invalid numeric values.")
         print(
-            f"ℹ️ Removed shared unit '{(shared_prefix + shared_suffix).strip()}' from column '{column}'."
+            f"Removed shared unit '{(shared_prefix + shared_suffix).strip()}' from column '{column}'."
         )
         return numeric
 
     def validate_data(self):
         """Perform strict validation of the format and consistency of loaded or generated data."""
         if self.raw_data is None:
-            print("❌ Critical error: No data has been loaded for validation.")
+            print("Critical error: No data has been loaded for validation.")
             return False
             
         is_consistent = True
-        print("\n🔍 DATA FORMAT AND CONSISTENCY TEST HAS STARTED...")
+        print("\nDATA FORMAT AND CONSISTENCY TEST HAS STARTED...")
         
         if self.raw_data.isna().sum().sum() > 0:
-            print("   ⚠️ Warning: The table contains empty or undefined values (NaN)!")
+            print("   Warning: The table contains empty or undefined values (NaN)!")
             is_consistent = False
             
         for short_name in self.variables_config.keys():
             if short_name not in self.raw_data.columns:
-                print(f"   ❌ Critical error: Required column '{short_name}' is missing from the dataset!")
+                print(f"   Critical error: Required column '{short_name}' is missing from the dataset!")
                 is_consistent = False
                 continue
                 
@@ -266,21 +269,21 @@ class HTA:
             
             if dtype == "bool":
                 if not series.isin([True, False, 0, 1, 0.0, 1.0]).all():
-                    print(f"   ❌ Type error: Column '{short_name}' should be BOOL but contains other values!")
+                    print(f"   Type error: Column '{short_name}' should be BOOL but contains other values!")
                     is_consistent = False
             elif dtype == "int":
                 if not np.equal(series, series.astype(int)).all():
-                    print(f"   ⚠️ Warning: Column '{short_name}' should be INT but contains decimal values!")
+                    print(f"   Warning: Column '{short_name}' should be INT but contains decimal values!")
                     
             if dtype != "bool" and "range" in cfg:
                 low, high = cfg["range"]
                 if series.min() < low or series.max() > high:
-                    print(f"   ⚠️ Range warning: Values in column '{short_name}' exceed the configured range (Current Min: {series.min()}, Max: {series.max()} vs allowed {cfg['range']}).")
+                    print(f"   Range warning: Values in column '{short_name}' exceed the configured range (Current Min: {series.min()}, Max: {series.max()} vs allowed {cfg['range']}).")
 
         if is_consistent:
-            print("🚀 All format and consistency checks passed successfully. Data are valid.")
+            print("All format and consistency checks passed successfully. Data are valid.")
         else:
-            print("⚠️ Inconsistencies were found in the data. Check the output above.")
+            print("Inconsistencies were found in the data. Check the output above.")
             
         return is_consistent
 
@@ -588,7 +591,7 @@ class HTA:
                 if self.weights is not None and self.weights.get(col, 0) > 0:
                     # This message is displayed only during real evaluation, not during sensitivity analysis when weights change repeatedly
                     if hasattr(self, '_silence_info') and not self._silence_info:
-                        print(f"ℹ️ Criterion '{col}' is only used as a filter in this context (all approved devices have the same value).")
+                        print(f"Criterion '{col}' is only used as a filter in this context (all approved devices have the same value).")
         return active_cols
 
     def _adjust_active_weights(self, active_cols):
@@ -700,37 +703,37 @@ class HTA:
         Displays method info, weights, ranking, and sensitivity bounds (if available).
         """
         if self.results is None:
-            print("❌ No results stored. Run run_mcda() first!")
+            print("No results stored. Run run_mcda() first!")
             return
         
         print("\n" + "=" * 90)
         print("   MCDA ANALYSIS RESULTS")
         print("=" * 90)
         
-        print(f"\n📋 Configuration:")
+        print("\nConfiguration:")
         print(f"   MCDA Method:       {self.results['method']}")
         print(f"   Normalization:     {self.results['norm_method']}")
         print(f"   Timestamp:         {self.results['timestamp']}")
         print(f"   Active Criteria:   {len(self.results['active_columns'])} / {len(self.variables_config)}")
         
-        print(f"\n📊 Used Weights (after filtering):")
+        print("\nUsed Weights (after filtering):")
         for col in self.results['active_columns']:
             full_name = self.variables_config.get(col, {}).get("full_name", col)
             w_value = self.results['active_weights'].get(col, 0.0)
-            print(f"   • {col:20s} = {w_value:7.4f}  ({full_name})")
+            print(f"   - {col:20s} = {w_value:7.4f}  ({full_name})")
         
-        print(f"\n🏆 Ranking Results:")
+        print("\nRanking Results:")
         ranking_df = self.results['ranking'][['Score', 'Status', 'Rank']].copy()
         print(ranking_df.to_string())
         
         # Display sensitivity bounds if available
         if self.results['sensitivity'] is not None:
-            print(f"\n⚙️  Weight Stability Bounds (Sensitivity Analysis):")
+            print("\nWeight Stability Bounds (Sensitivity Analysis):")
             sens_df = self.results['sensitivity'][['w_min', 'w_max', 'delta_minus', 'delta_plus']].copy()
             print(sens_df.to_string())
         else:
-            print(f"\n⚙️  Sensitivity analysis not yet performed.")
-            print(f"   → Run: hta.find_stability_intervals() to compute weight bounds")
+            print("\nSensitivity analysis not yet performed.")
+            print("   Run: hta.find_stability_intervals() to compute weight bounds")
         
         print("\n" + "=" * 90 + "\n")
 
@@ -753,7 +756,7 @@ class HTA:
         
         # Iterate through all variables in the configuration
         for short_name, cfg in self.variables_config.items():
-            print(f"🔹 Short name: '{short_name}'")
+            print(f"Short name: '{short_name}'")
             print(f"   - Full name:  {cfg.get('full_name', 'Not provided')}")
             print(f"   - Data type:  {cfg.get('dtype', 'float')} | Criterion direction: {cfg.get('type', 'benefit')}")
             
@@ -779,11 +782,11 @@ class HTA:
         if short_name in self.variables_config:
             # Update existing settings
             self.variables_config[short_name].update(new_settings)
-            print(f"\n🔄 Variable configuration for '{short_name}' was updated successfully.")
+            print(f"\nVariable configuration for '{short_name}' was updated successfully.")
         else:
             # Add a completely new variable if the short name does not exist
             self.variables_config[short_name] = new_settings
-            print(f"\n➕ A new variable '{short_name}' was added.")
+            print(f"\nA new variable '{short_name}' was added.")
             
         # Recalculate the total number of variables
         self.n_variables = len(self.variables_config)
