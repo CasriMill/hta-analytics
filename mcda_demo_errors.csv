@@ -1,0 +1,11 @@
+Device_ID;score_int;score_float;approved;category;weight_filter
+HTA_Type;benefit;benefit;benefit;benefit;cost
+HTA_Dtype;int;float;bool;category;float
+HTA_FullName;Integer score;Float score;Approval flag;Category filter;Filter weight
+HTA_Weight;0.40;-0.10;0.30;0.00;0.30
+Device_valid;10;12.5;True;1;2.0
+Device_bool_number;11;13.0;2;2;3.0
+Device_int_text;bad;14.5;False;A;4.0
+Device_float_text;12;not-a-number;1;3;5.0
+Device_nan;NaN;16.0;False;B;6.0
+Device_mixed_category;13;17.5;True;4A;7.0

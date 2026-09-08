@@ -54,6 +54,28 @@ def test_export_results_xlsx_creates_file(tmp_path):
     assert output_path.exists()
 
 
+def test_import_protocol_tracks_invalid_numeric_rows_and_categories(tmp_path):
+    source = tmp_path / "invalid.csv"
+    source.write_text(
+        "Device_ID;score;approved;category\n"
+        "HTA_Type;benefit;benefit;benefit\n"
+        "HTA_Dtype;int;bool;category\n"
+        "HTA_Weight;1;0;0\n"
+        "Device_1;10;True;1\n"
+        "Device_2;bad;False;2\n",
+        encoding="utf-8",
+    )
+
+    hta = HTA()
+
+    assert hta.load_data(str(source))
+    assert hta.devices == ["Device_1"]
+    assert "category" in hta.variables_config
+    assert hta.variables_config["category"]["dtype"] == "category"
+    assert hta.import_dropped_devices == ["Device_2"]
+    assert hta.import_validation_issues
+
+
 @pytest.mark.parametrize("method", [
     "weitendorf", "minmax", "max", "juttler", "juttler_korth",
     "sum", "vector", "sigmoid", "peldchus",

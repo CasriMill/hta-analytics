@@ -1,4 +1,4 @@
-# HTA Analytics - GUI version under construction (comprehensive import/filter/preview/export)
+# HTA Analytics 0.4.0 - GUI version under construction (comprehensive import/filter/preview/export)
 
 A robust and comprehensive Python library for **Health Technology Assessment (HTA)**. Designed specifically for evaluating medical devices and clinical systems using Multi-Criteria Decision Analysis (MCDA). 
 
@@ -71,6 +71,11 @@ pip install git+https://github.com/CasriMill/hta-analytics.git
    the PNG charts at high resolution.
 
 The **Help / Workflow** button in the GUI opens this README directly.
+
+The repository also contains `mcda_demo_errors.csv`, a deliberately invalid
+sample for testing import validation. It demonstrates invalid boolean, integer,
+float, missing numeric values, categorical values containing numbers, and a
+negative imported weight.
 
 ---
 

@@ -37,7 +37,7 @@ class HTAGUI(QMainWindow):
         self.filter_rules = []
         self.weight_fields = {}
 
-        self.setWindowTitle("HTA Analytics")
+        self.setWindowTitle("HTA Analytics 0.4.0")
         self.resize(1400, 900)
 
         self.method_group = QGroupBox("MCDA method")

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QPushButton,
     QMessageBox,
+    QPlainTextEdit,
 )
 
 from hta.analyzer import HTA
@@ -37,7 +38,7 @@ class HTAGUI(QMainWindow):
         super().__init__()
         self.hta = HTA()
 
-        self.setWindowTitle("HTA Analytics")
+        self.setWindowTitle("HTA Analytics 0.4.0")
         self.resize(1400, 900)
         self.setStatusBar(QStatusBar(self))
         self.statusBar().setStyleSheet("QStatusBar { border-top: 1px solid #d0d0d0; background: #f5f5f5; color: #222; }")
@@ -47,6 +48,9 @@ class HTAGUI(QMainWindow):
         self.norm_group = QGroupBox("Normalization")
         self.action_group = QGroupBox("Actions")
         self.source_group = QGroupBox("Data source")
+        self.import_protocol = QPlainTextEdit()
+        self.import_protocol.setReadOnly(True)
+        self.import_protocol.setMinimumHeight(130)
 
         self.device_count_spin = QSpinBox()
         self.device_count_spin.setRange(2, 500)
@@ -72,6 +76,7 @@ class HTAGUI(QMainWindow):
         self.refresh_preview_table()
         self.refresh_results_table()
         self.refresh_chart()
+        self.refresh_import_protocol("No source", "Ready")
 
     def setup_ui(self):
         central = QWidget()
@@ -132,8 +137,19 @@ class HTAGUI(QMainWindow):
         run_btn.setMinimumHeight(34)
         action_layout.addWidget(run_btn)
 
-        data_panel = QWidget(); data_panel_layout = QVBoxLayout(data_panel)
-        data_panel_layout.addWidget(QLabel("Data preview")); data_panel_layout.addWidget(self.data_table)
+        import_panel = QWidget()
+        import_panel_layout = QVBoxLayout(import_panel)
+        import_panel_layout.addWidget(self.source_group)
+        import_content_layout = QHBoxLayout()
+        import_table_layout = QVBoxLayout()
+        import_table_layout.addWidget(QLabel("Raw data preview"))
+        import_table_layout.addWidget(self.data_table)
+        import_protocol_layout = QVBoxLayout()
+        import_protocol_layout.addWidget(QLabel("Import protocol"))
+        import_protocol_layout.addWidget(self.import_protocol)
+        import_content_layout.addLayout(import_table_layout, 3)
+        import_content_layout.addLayout(import_protocol_layout, 1)
+        import_panel_layout.addLayout(import_content_layout)
         results_panel = QWidget(); results_panel_layout = QVBoxLayout(results_panel)
         results_content_layout = QHBoxLayout()
         results_tables_layout = QVBoxLayout()
@@ -155,9 +171,9 @@ class HTAGUI(QMainWindow):
         results_panel_layout.addLayout(results_content_layout)
 
         self.tabs = QTabWidget()
+        self.tabs.addTab(import_panel, "Import")
         self.tabs.addTab(self.weights_editor.widget(), "Weights")
         self.tabs.addTab(self.filter_editor.widget(), "Filters")
-        self.tabs.addTab(data_panel, "rw_data")
         self.tabs.addTab(results_panel, "Results")
         self.tabs.addTab(self.chart_panel, "Graphs")
 
@@ -169,7 +185,6 @@ class HTAGUI(QMainWindow):
         analysis_layout.addWidget(self.norm_group)
         analysis_layout.addWidget(self.action_group, 1)
 
-        root.addWidget(self.source_group)
         root.addWidget(analysis_controls)
         root.addWidget(self.tabs)
 
@@ -200,6 +215,38 @@ class HTAGUI(QMainWindow):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.data_table.setItem(row_index, col_index, item)
+
+    def refresh_import_protocol(self, source, status="Ready"):
+        if self.hta.raw_data is None:
+                self.import_protocol.setPlainText(f"Status: {status}\nNo dataset loaded.")
+                return
+        numeric = sum(
+                config.get("dtype") in {"int", "float", "bool"}
+                for config in self.hta.variables_config.values()
+        )
+        categorical = len(self.hta.variables_config) - numeric
+        lines = [
+                f"Status: {status}",
+                f"Source: {source}",
+                f"Devices: {len(self.hta.devices)}",
+                f"Criteria: {len(self.hta.variables_config)}",
+                f"Numeric/bool MCDA candidates: {numeric}",
+                f"Categorical/filter-only criteria: {categorical}",
+                f"Imported weights: {'yes' if self.hta.weights is not None else 'no'}",
+        ]
+        if getattr(self.hta, "imported_weight_adjustments", {}):
+                lines.append("Warnings:")
+                for column, value in self.hta.imported_weight_adjustments.items():
+                    lines.append(f"- Negative weight adjusted to zero: {column} ({value:g})")
+        if getattr(self.hta, "import_validation_issues", []):
+                lines.append("Validation warnings:")
+                lines.extend(f"- {issue}" for issue in self.hta.import_validation_issues)
+        if getattr(self.hta, "import_dropped_devices", []):
+                lines.append(
+                    "Excluded device rows: "
+                    + ", ".join(map(str, self.hta.import_dropped_devices))
+                )
+        self.import_protocol.setPlainText("\n".join(lines))
 
     def refresh_results_table(self):
         if self.hta.results is None or self.hta.results.get("ranking") is None:
@@ -286,6 +333,45 @@ class HTAGUI(QMainWindow):
         self.weights_editor.set_hta(self.hta)
         self.filter_editor.clear_filters()
         self.refresh_preview_table(); self.refresh_results_table(); self.refresh_chart()
+        self.refresh_import_protocol(path, "Imported")
+        if self.hta.imported_weight_adjustments:
+            adjustments = "\n".join(
+                f"- {column}: {value:g} -> 0"
+                for column, value in self.hta.imported_weight_adjustments.items()
+            )
+            answer = QMessageBox.question(
+                self,
+                "Negative imported weights",
+                "Negative imported weights are invalid and will be set to zero:\n\n"
+                f"{adjustments}\n\nContinue with the adjusted values?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer == QMessageBox.No:
+                self.hta = HTA()
+                self.filter_editor.set_hta(self.hta)
+                self.weights_editor.set_hta(self.hta)
+                self.refresh_preview_table()
+                self.refresh_import_protocol("No source", "Import cancelled")
+                return
+        if self.hta.import_validation_issues:
+            answer = QMessageBox.question(
+                self,
+                "Import validation warnings",
+                "Invalid imported values were found. Affected device rows will "
+                "be excluded from MCDA.\n\n"
+                + "\n".join(f"- {issue}" for issue in self.hta.import_validation_issues)
+                + "\n\nContinue with the proposed repairs?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer == QMessageBox.No:
+                self.hta = HTA()
+                self.filter_editor.set_hta(self.hta)
+                self.weights_editor.set_hta(self.hta)
+                self.refresh_preview_table()
+                self.refresh_import_protocol("No source", "Import cancelled")
+                return
         if self.hta.weights is not None:
             self.set_status(f"Loaded dataset and activated imported weights from {path}")
         else:
@@ -297,6 +383,7 @@ class HTAGUI(QMainWindow):
         self.weights_editor.set_hta(self.hta)
         self.filter_editor.clear_filters()
         self.refresh_preview_table(); self.refresh_results_table(); self.refresh_chart()
+        self.refresh_import_protocol("Generated demo data", "Generated")
         self.set_status(f"Generated demo dataset with {self.device_count_spin.value()} devices")
 
     def run_analysis(self):
@@ -319,23 +406,32 @@ class HTAGUI(QMainWindow):
         if not self.weights_editor.weights_changed_manually:
             return True
 
-        zero_weight = [
-            column for column, weight in self.hta.weights.items()
-            if float(weight) == 0.0
-        ] if self.hta.weights is not None else []
-        categorical = [
-            column for column, config in self.hta.variables_config.items()
-            if config.get("dtype") not in {"int", "float", "bool"}
-        ]
-        excluded = list(dict.fromkeys(zero_weight + categorical))
-        if not excluded:
+        exclusions = {}
+        if self.hta.weights is not None:
+            for column, weight in self.hta.weights.items():
+                if float(weight) <= 1e-12:
+                    exclusions[column] = "zero weight"
+        for column, config in self.hta.variables_config.items():
+            if config.get("dtype") not in {"int", "float", "bool"}:
+                exclusions[column] = "categorical/filter-only criterion"
+                continue
+            if self.hta.raw_data is not None and self.hta.filtered_devices:
+                values = self.hta.raw_data.loc[self.hta.filtered_devices, column]
+                if values.nunique(dropna=True) <= 1:
+                    exclusions[column] = "no variation after filtering"
+
+        if not exclusions:
             return True
 
-        details = "\n".join(f"- {column}" for column in excluded)
+        details = "\n".join(
+            f"- {column}: {reason}"
+            for column, reason in exclusions.items()
+        )
         answer = QMessageBox.question(
             self,
             "Criteria excluded from MCDA",
-            "The following criteria will not participate in MCDA:\n\n"
+            "The following criteria will not participate in MCDA. "
+            "The reason is shown after each item:\n\n"
             f"{details}\n\nContinue with these criteria excluded?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,

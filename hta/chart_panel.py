@@ -97,7 +97,12 @@ class ChartPanel(QWidget):
             if accepted.empty:
                 self.ranking_ax.text(0.5, 0.5, "No accepted devices", ha="center", va="center")
             else:
-                self.ranking_ax.barh(accepted.index, accepted["Score"].astype(float), color="#2E86DE")
+                self.ranking_ax.barh(
+                    accepted.index,
+                    accepted["Score"].astype(float),
+                    color="#2E86DE",
+                    height=0.35,
+                )
                 self.ranking_ax.invert_yaxis()
                 self.ranking_ax.set_xlabel("Score")
                 self.ranking_ax.set_title("Ranking")
@@ -126,12 +131,12 @@ class ChartPanel(QWidget):
                         markeredgewidth=2, color="#1B4D3E",
                     )
                     self.sensitivity_ax.annotate(
-                        f"{lower:.3f}", (lower, position), xytext=(-4, 9),
-                        textcoords="offset points", ha="right", va="bottom", fontsize=8,
+                        f"{lower:.3f}", (lower, position), xytext=(-4, 0),
+                        textcoords="offset points", ha="right", va="center", fontsize=8,
                     )
                     self.sensitivity_ax.annotate(
-                        f"{upper:.3f}", (upper, position), xytext=(4, 9),
-                        textcoords="offset points", ha="left", va="bottom", fontsize=8,
+                        f"{upper:.3f}", (upper, position), xytext=(4, 0),
+                        textcoords="offset points", ha="left", va="center", fontsize=8,
                     )
                 self.sensitivity_ax.set_yticks(positions)
                 self.sensitivity_ax.set_yticklabels(labels)

@@ -6,7 +6,7 @@ from hta.analyzer import HTA
 def test_demo_data_ranking_stability():
     data_file = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
-        "mcda_demo_data_weight_8devices.csv",
+        "mcda_demo_data_weight_10devices.csv",
     )
 
     hta = HTA()
@@ -18,15 +18,17 @@ def test_demo_data_ranking_stability():
         "ce_cert": 0,
     })
 
-    # Use same reference run as the demo workflow for regression guard.
+    # Use the same reference run as the ten-device demo workflow.
     hta.apply_filters({"ce_cert": True})
     result = hta.run_mcda(method="SAW", norm_method="minmax")
 
     expected_ranking = [
         "Device_6",
         "Device_2",
+        "Device_9",
         "Device_8",
         "Device_1",
+        "Device_10",
         "Device_5",
         "Device_3",
         "Device_7",

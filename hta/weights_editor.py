@@ -72,7 +72,13 @@ class WeightsEditor(QWidget):
             spin.setValue(current_weight)
             spin.valueChanged.connect(self._weights_changed)
             self.weight_fields[column] = spin
-            self.form.addRow(f"{column}:", spin)
+            label = column
+            if column in getattr(self.hta, "imported_weight_adjustments", {}):
+                label += " (imported negative -> 0)"
+                spin.setToolTip(
+                    "The imported negative weight was set to 0 after confirmation."
+                )
+            self.form.addRow(label + ":", spin)
 
         self._set_applied_state(self.hta.weights is not None)
 

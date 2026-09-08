@@ -11,7 +11,7 @@ and robust weight sensitivity assessment using interval bisection algorithms.
 :authors:     MILLEK Jiri  <jiri.millek@fbmi.cvut.cz> [https://orcid.org/0000-0002-5834-7184]
 :copyright:   (c) 2026 MILLEK Jiri / CASRI, p.o. MoD Czech Republic && Czech Technical University in Prague, Faculty of Biomedical Engineering dept. Information and Communication Technologies in Medicine
 :license:     MIT License
-:version:     0.3.0
+:version:     0.4.0
 :status:      Open Source
 """
 
@@ -46,7 +46,10 @@ class HTA:
         self.raw_data = None
         self.dataset_label = "Generated dataset" if self.n_devices is not None else "No dataset"
         self.weights = None
+        self.imported_weight_adjustments = {}
         self.normalized_data = None
+        self.import_validation_issues = []
+        self.import_dropped_devices = []
         self._silence_info = False
         if hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(errors="replace")
@@ -148,15 +151,70 @@ class HTA:
             self.raw_data = df.drop(rows_to_drop)
             
             # Re-type columns according to the imported metadata
+            self.import_validation_issues = []
+            self.import_dropped_devices = []
             for col in self.raw_data.columns:
                 dt = self.variables_config[col]["dtype"]
                 if dt == "int":
-                    self.raw_data[col] = self._coerce_numeric_column(self.raw_data[col], col).round().astype(int)
+                    original = self.raw_data[col]
+                    try:
+                        numeric = self._coerce_numeric_column(original, col)
+                        invalid = numeric.isna() | (numeric % 1 != 0)
+                    except ValueError:
+                        numeric = pd.to_numeric(original, errors="coerce")
+                        invalid = numeric.isna() | (numeric % 1 != 0) | original.map(
+                            lambda value: isinstance(value, (bool, np.bool_))
+                        )
+                    if invalid.any():
+                        self.import_validation_issues.append(
+                            f"{col}: {int(invalid.sum())} invalid int value(s) replaced with missing"
+                        )
+                    self.raw_data[col] = numeric
                 elif dt == "float":
-                    self.raw_data[col] = self._coerce_numeric_column(self.raw_data[col], col).astype(float)
+                    original = self.raw_data[col]
+                    try:
+                        numeric = self._coerce_numeric_column(original, col)
+                    except ValueError:
+                        numeric = pd.to_numeric(original, errors="coerce")
+                    invalid = numeric.isna() | original.map(
+                        lambda value: isinstance(value, (bool, np.bool_))
+                    )
+                    if invalid.any():
+                        self.import_validation_issues.append(
+                            f"{col}: {int(invalid.sum())} invalid float value(s) replaced with missing"
+                        )
+                    self.raw_data[col] = numeric.astype(float)
                 elif dt == "bool":
                     # Convert values such as 'True'/'False' or 1/0 into proper boolean types
-                    self.raw_data[col] = self.raw_data[col].map({'True': True, 'False': False, 1: True, 0: False, True: True, False: False})
+                    original = self.raw_data[col]
+                    mapped = original.map({
+                        "true": True, "false": False, "True": True, "False": False,
+                        1: True, 0: False, True: True, False: False,
+                    })
+                    invalid = mapped.isna()
+                    if invalid.any():
+                        self.import_validation_issues.append(
+                            f"{col}: {int(invalid.sum())} invalid bool value(s) replaced with missing"
+                        )
+                    self.raw_data[col] = mapped
+                elif dt == "category":
+                    self.raw_data[col] = self.raw_data[col].astype("string")
+
+            numeric_columns = [
+                col for col, config in self.variables_config.items()
+                if config["dtype"] in {"int", "float", "bool"}
+            ]
+            if numeric_columns:
+                invalid_rows = self.raw_data[numeric_columns].isna().any(axis=1)
+                self.import_dropped_devices = list(self.raw_data.index[invalid_rows])
+                if self.import_dropped_devices:
+                    self.import_validation_issues.append(
+                        f"{len(self.import_dropped_devices)} device row(s) excluded from MCDA because of invalid values"
+                    )
+                    self.raw_data = self.raw_data.loc[~invalid_rows].copy()
+            for col, config in self.variables_config.items():
+                if config["dtype"] == "int":
+                    self.raw_data[col] = self.raw_data[col].astype(int)
             
             # Set internal attributes based on the imported dataset
             self.devices = list(self.raw_data.index)
@@ -177,6 +235,14 @@ class HTA:
                             pass  # Skip invalid weight values
                     
                     if weights_dict:
+                        self.imported_weight_adjustments = {
+                            col: value for col, value in weights_dict.items()
+                            if value < 0
+                        }
+                        weights_dict = {
+                            col: max(value, 0.0)
+                            for col, value in weights_dict.items()
+                        }
                         self.set_weights(weights_dict)
                         print("Weights imported successfully from file:")
                         for var, weight in self.weights.items():
