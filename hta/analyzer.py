@@ -11,7 +11,7 @@ and robust weight sensitivity assessment using interval bisection algorithms.
 :authors:     MILLEK Jiri  <jiri.millek@fbmi.cvut.cz> [https://orcid.org/0000-0002-5834-7184]
 :copyright:   (c) 2026 MILLEK Jiri / CASRI, p.o. MoD Czech Republic && Czech Technical University in Prague, Faculty of Biomedical Engineering dept. Information and Communication Technologies in Medicine
 :license:     MIT License
-:version:     0.1.6
+:version:     0.3.0
 :status:      Open Source
 """
 
@@ -526,9 +526,31 @@ class HTA:
         print(f"\n💾 Results exported to: {output_path}")
         return output_path
 
-    def normalize_data(self, method="weitendorf"):
-        """Alternative normalization methods: 'minmax', 'weitendorf', 'z_score'."""
+    def normalize_data(self, method="weitendorf", peldchus_t=2.0):
+        """Normalize numeric criteria so that larger values are always better.
+
+        ``minmax`` and ``z_score`` are retained for backwards compatibility.
+        The additional methods are ``max``/``juttler``, ``juttler_korth``,
+        ``sum``, ``vector``, ``sigmoid`` and ``peldchus``.
+        """
         self.normalized_data = pd.DataFrame(index=self.devices, columns=self.raw_data.columns)
+        method = str(method).lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "jüttler": "juttler",
+            "juttler_körth": "juttler_korth",
+            "peldchus_t2": "peldchus_t2",
+            "peldchus_t3": "peldchus_t3",
+        }
+        method = aliases.get(method, method)
+        supported = {
+            "minmax", "weitendorf", "z_score", "max", "juttler",
+            "juttler_korth", "sum", "vector", "sigmoid", "peldchus",
+            "peldchus_t2", "peldchus_t3",
+        }
+        if method not in supported:
+            raise ValueError(f"Unsupported normalization method: '{method}'")
+        if peldchus_t <= 0:
+            raise ValueError("peldchus_t must be greater than zero.")
         
         for col, cfg in self.variables_config.items():
             if cfg.get("dtype") not in {"int", "float", "bool"}:
@@ -540,23 +562,22 @@ class HTA:
             series = self.raw_data[col].astype(float)
             x_min, x_max, x_mean = series.min(), series.max(), series.mean()
             x_std = series.std() if series.std() != 0 else 1.0
+            benefit = cfg["type"] == "benefit"
             
+            if x_max == x_min:
+                self.normalized_data[col] = 1.0
+                continue
+
             if method == "weitendorf":
-                if x_max == x_min:
-                    self.normalized_data[col] = 1.0
-                elif cfg["type"] == "benefit":
+                if benefit:
                     self.normalized_data[col] = (series - x_min) / (x_max - x_min)
                 else:
                     self.normalized_data[col] = (x_max - series) / (x_max - x_min)
-
             elif method == "minmax":
-                if x_max == x_min:
-                    self.normalized_data[col] = 0.5
-                elif cfg["type"] == "benefit":
+                if benefit:
                     self.normalized_data[col] = series / x_max
                 else:
                     self.normalized_data[col] = 1 - (series / x_max)
-                    
             elif method == "z_score":
                 z_score = (series - x_mean) / x_std
                 z_min, z_max = z_score.min(), z_score.max()
@@ -566,6 +587,48 @@ class HTA:
                     self.normalized_data[col] = (z_score - z_min) / (z_max - z_min)
                 else:
                     self.normalized_data[col] = (z_max - z_score) / (z_max - z_min)
+            elif method in {"max", "juttler"}:
+                self.normalized_data[col] = series / x_max if benefit else 1 - (series / x_max)
+            elif method == "juttler_korth":
+                if not benefit and (series <= 0).any() or benefit and x_max == 0:
+                    raise ValueError(f"Jüttler-Körth requires positive values in '{col}'.")
+                self.normalized_data[col] = series / x_max if benefit else x_min / series
+            elif method == "sum":
+                if (series <= 0).any():
+                    raise ValueError(f"SUM normalization requires positive values in '{col}'.")
+                if benefit:
+                    self.normalized_data[col] = series / series.sum()
+                else:
+                    inverse = 1 / series
+                    self.normalized_data[col] = inverse / inverse.sum()
+            elif method == "vector":
+                denominator = np.sqrt((series ** 2).sum())
+                if denominator == 0:
+                    self.normalized_data[col] = 1.0
+                elif benefit:
+                    self.normalized_data[col] = series / denominator
+                else:
+                    self.normalized_data[col] = 1 - (series / denominator)
+            elif method == "sigmoid":
+                iqr = series.quantile(0.75) - series.quantile(0.25)
+                if iqr == 0:
+                    self.normalized_data[col] = 0.5
+                else:
+                    sigmoid_cost = 1 / (1 + np.exp((series - series.median()) / iqr))
+                    self.normalized_data[col] = 1 - sigmoid_cost if benefit else sigmoid_cost
+            elif method in {"peldchus", "peldchus_t2", "peldchus_t3"}:
+                if method == "peldchus_t2":
+                    peldchus_t = 2.0
+                elif method == "peldchus_t3":
+                    peldchus_t = 3.0
+                base = ((series - x_min) / (x_max - x_min)
+                        if benefit else (x_max - series) / (x_max - x_min))
+                # Preserve t=1 as Weitendorf while emphasizing values above
+                # the criterion's mean for t>1.
+                mean_score = base.mean()
+                centered = base - mean_score
+                transformed = mean_score + np.sign(centered) * np.abs(centered) ** peldchus_t
+                self.normalized_data[col] = transformed.clip(0, 1)
         return self.normalized_data
 
     def _prepare_active_dimensions(self):

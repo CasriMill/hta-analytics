@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -81,6 +83,8 @@ class HTAGUI(QMainWindow):
         file_btn.clicked.connect(self.load_file_data)
         generate_btn = QPushButton("Generate demo data")
         generate_btn.clicked.connect(self.generate_demo_data)
+        help_btn = QPushButton("Help / Workflow")
+        help_btn.clicked.connect(self.open_help)
         for button in (file_btn, generate_btn):
             button.setMinimumHeight(32)
 
@@ -90,6 +94,7 @@ class HTAGUI(QMainWindow):
         source_row.addWidget(generate_btn)
         source_row.addWidget(QLabel("Device count:"))
         source_row.addWidget(self.device_count_spin)
+        source_row.addWidget(help_btn)
         source_layout.addLayout(source_row)
 
         method_layout = QVBoxLayout(self.method_group)
@@ -106,7 +111,10 @@ class HTAGUI(QMainWindow):
         norm_layout.setContentsMargins(8, 6, 8, 6)
         norm_layout.setSpacing(4)
         self.norm_buttons = {}
-        for method in ["minmax", "weitendorf", "z_score"]:
+        for method in [
+            "minmax", "weitendorf", "z_score", "max", "juttler_korth",
+            "sum", "vector", "sigmoid", "peldchus_t2", "peldchus_t3",
+        ]:
             radio = QRadioButton(method)
             radio.setChecked(method == "minmax")
             self.norm_buttons[method] = radio
@@ -127,16 +135,24 @@ class HTAGUI(QMainWindow):
         data_panel = QWidget(); data_panel_layout = QVBoxLayout(data_panel)
         data_panel_layout.addWidget(QLabel("Data preview")); data_panel_layout.addWidget(self.data_table)
         results_panel = QWidget(); results_panel_layout = QVBoxLayout(results_panel)
-        results_export_layout = QHBoxLayout()
+        results_content_layout = QHBoxLayout()
+        results_tables_layout = QVBoxLayout()
         export_csv_btn = QPushButton("Export CSV")
         export_csv_btn.clicked.connect(self.export_csv)
         export_xlsx_btn = QPushButton("Export XLSX")
         export_xlsx_btn.clicked.connect(self.export_xlsx)
+        results_tables_layout.addWidget(QLabel("Results"))
+        results_tables_layout.addWidget(self.results_table)
+        results_tables_layout.addWidget(QLabel("Raw data ordered by rank"))
+        results_tables_layout.addWidget(self.ranked_data_table)
+        results_export_layout = QVBoxLayout()
+        results_export_layout.setSpacing(6)
         results_export_layout.addWidget(export_csv_btn)
         results_export_layout.addWidget(export_xlsx_btn)
-        results_panel_layout.addWidget(QLabel("Results")); results_panel_layout.addWidget(self.results_table)
-        results_panel_layout.addWidget(QLabel("Raw data ordered by rank")); results_panel_layout.addWidget(self.ranked_data_table)
-        results_panel_layout.addLayout(results_export_layout)
+        results_export_layout.addStretch()
+        results_content_layout.addLayout(results_tables_layout, 1)
+        results_content_layout.addLayout(results_export_layout)
+        results_panel_layout.addLayout(results_content_layout)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.weights_editor.widget(), "Weights")
@@ -246,6 +262,18 @@ class HTAGUI(QMainWindow):
                 return name
         return "minmax"
 
+    def open_help(self):
+        readme_path = Path(__file__).resolve().parent.parent / "README.md"
+        if not readme_path.exists():
+            QMessageBox.warning(self, "Help unavailable", "README.md was not found.")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(readme_path))):
+            QMessageBox.warning(
+                self,
+                "Help unavailable",
+                f"Could not open the workflow help:\n{readme_path}",
+            )
+
     def load_file_data(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open HTA dataset", "", "CSV Files (*.csv);;Excel Files (*.xlsx *.xls)")
         if not path:
@@ -276,6 +304,9 @@ class HTAGUI(QMainWindow):
             QMessageBox.warning(self, "No data", "Load data or generate demo data first.")
             return
         method = self._selected_method(); norm = self._selected_norm()
+        if not self._confirm_mcda_exclusions():
+            self.tabs.setCurrentIndex(0)
+            return
         try:
             self.hta.run_mcda(method=method, norm_method=norm)
             self.refresh_results_table(); self.refresh_chart()
@@ -283,6 +314,33 @@ class HTAGUI(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Analysis error", str(exc))
             self.set_status("Analysis failed")
+
+    def _confirm_mcda_exclusions(self):
+        if not self.weights_editor.weights_changed_manually:
+            return True
+
+        zero_weight = [
+            column for column, weight in self.hta.weights.items()
+            if float(weight) == 0.0
+        ] if self.hta.weights is not None else []
+        categorical = [
+            column for column, config in self.hta.variables_config.items()
+            if config.get("dtype") not in {"int", "float", "bool"}
+        ]
+        excluded = list(dict.fromkeys(zero_weight + categorical))
+        if not excluded:
+            return True
+
+        details = "\n".join(f"- {column}" for column in excluded)
+        answer = QMessageBox.question(
+            self,
+            "Criteria excluded from MCDA",
+            "The following criteria will not participate in MCDA:\n\n"
+            f"{details}\n\nContinue with these criteria excluded?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return answer == QMessageBox.Yes
 
     def export_csv(self):
         if self.hta.results is None or self.hta.results.get("ranking") is None:

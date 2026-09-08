@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hta-analytics"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
     { name = "Jiri MILLEK", email = "jiri.millek@fbmi.cvut.cz" }
 ]

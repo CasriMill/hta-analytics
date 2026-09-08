@@ -5,6 +5,6 @@ authors:
     given-names: "Jiri"
     orcid: "https://orcid.org/0000-0002-5834-7184"
 title: "HTA Analytics: Multi-Criteria Decision Analysis and Weight Sensitivity for Medical Devices"
-version: 0.1.5
+version: 0.3.0
 date-released: 2026-08-28
-url: "https://github.com"
+url: "https://github.com/CasriMill/hta-analytics"

@@ -5,7 +5,14 @@ import numpy as np
 from PySide6.QtCore import Signal
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class ChartPanel(QWidget):
@@ -42,16 +49,37 @@ class ChartPanel(QWidget):
         )
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
         layout.addWidget(self.title)
         layout.addWidget(self.sensitivity_scope)
-        export_buttons = QHBoxLayout()
+
+        chart_container = QWidget()
+        chart_layout = QVBoxLayout(chart_container)
+        chart_layout.setContentsMargins(0, 0, 0, 0)
+        chart_layout.setSpacing(2)
+        chart_layout.addWidget(self.ranking_canvas)
+        chart_layout.addWidget(self.sensitivity_canvas)
+        chart_layout.addWidget(self.relative_sensitivity_canvas)
+
+        chart_scroll = QScrollArea()
+        chart_scroll.setWidgetResizable(True)
+        chart_scroll.setWidget(chart_container)
+
+        export_buttons = QVBoxLayout()
+        export_buttons.setContentsMargins(0, 0, 0, 0)
+        export_buttons.setSpacing(6)
         export_buttons.addWidget(self.export_ranking_button)
         export_buttons.addWidget(self.export_sensitivity_button)
         export_buttons.addWidget(self.export_relative_sensitivity_button)
-        layout.addLayout(export_buttons)
-        layout.addWidget(self.ranking_canvas, 1)
-        layout.addWidget(self.sensitivity_canvas, 1)
-        layout.addWidget(self.relative_sensitivity_canvas, 1)
+        export_buttons.addStretch()
+
+        content_layout = QHBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+        content_layout.addWidget(chart_scroll, 1)
+        content_layout.addLayout(export_buttons)
+        layout.addLayout(content_layout, 1)
 
     def update_chart(self, hta):
         self.ranking_ax.clear()
@@ -105,11 +133,6 @@ class ChartPanel(QWidget):
                         f"{upper:.3f}", (upper, position), xytext=(4, 9),
                         textcoords="offset points", ha="left", va="bottom", fontsize=8,
                     )
-                    self.sensitivity_ax.annotate(
-                        f"{current:.3f}", (current, position), xytext=(0, -14),
-                        textcoords="offset points", ha="center", va="top", fontsize=8,
-                        color="#1B4D3E",
-                    )
                 self.sensitivity_ax.set_yticks(positions)
                 self.sensitivity_ax.set_yticklabels(labels)
                 self.sensitivity_ax.set_xlabel("Weight")
@@ -160,6 +183,15 @@ class ChartPanel(QWidget):
         self.ranking_figure.tight_layout()
         self.sensitivity_figure.tight_layout()
         self.relative_sensitivity_figure.tight_layout()
+        row_count = len(accepted) if hta.results is not None and "accepted" in locals() else 1
+        row_count = max(row_count, len(sensitivity) if "sensitivity" in locals() else 1)
+        chart_height = max(260, 22 * row_count + 90)
+        for canvas in (
+            self.ranking_canvas,
+            self.sensitivity_canvas,
+            self.relative_sensitivity_canvas,
+        ):
+            canvas.setMinimumHeight(chart_height)
         self.ranking_canvas.draw()
         self.sensitivity_canvas.draw()
         self.relative_sensitivity_canvas.draw()

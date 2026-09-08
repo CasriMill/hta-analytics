@@ -10,9 +10,9 @@ The library supports dynamic data generation, multi-format file imports (CSV/XLS
 
 * **Multi-Format Data Import**: Seamlessly ingest data from local CSV or Excel (.xlsx) files using a structured metadata layout.
 * **Synthetic Data Simulation**: Generate highly realistic evaluation criteria with adjustable standard deviation (`std`) and skewness (`skewness`).
-* **Dual Normalization Techniques**:
-  * Classical **Min-Max** Normalization.
-  * Advanced **Weitendorf** Normalization (Z-score based mapping to mitigate outlier effects).
+* **MCDA Normalization Techniques**:
+  * **Min-Max** and **Weitendorf** range normalization.
+  * **MAX/Jüttler**, **Jüttler-Körth**, **SUM**, **VECTOR**, **SIGMOID**, and **Peldchus**.
 * **Variant MCDA Engines**:
   * **SAW** (Simple Additive Weighting / Weighted Sum Model).
   * **TOPSIS** (Technique for Order of Preference by Similarity to Ideal Solution).
@@ -21,6 +21,22 @@ The library supports dynamic data generation, multi-format file imports (CSV/XLS
 * **Advanced Visualizations**: Features descriptive statistical boxplots/violins and a specialized symmetric logarithmic (**SymLog**) weight sensitivity chart.
 
 ---
+
+### Normalization methods
+
+All methods return values where a higher value means a better alternative. Cost
+criteria are therefore inverted where needed. `weitendorf` uses
+`(r - r_min) / (r_max - r_min)` for benefits and
+`(r_max - r) / (r_max - r_min)` for costs. `max` (alias `juttler`) uses
+`r / r_max` for benefits and `1 - r / r_max` for costs. `juttler_korth`
+uses `r_min / r` for costs. `sum` uses inverse values for costs and direct
+values for benefits; `vector` divides by the Euclidean norm. `sigmoid` uses
+the specified function `1 / (1 + exp((r - median) / IQR))` for costs and its
+complement for benefits. `peldchus_t=1` is Weitendorf; the GUI offers the
+explicit variants `Peldchus t=2` and `Peldchus t=3`. Larger values emphasize
+departures above and below the mean.
+Constant criteria normalize to `1` and are removed from MCDA when they cannot
+distinguish active alternatives.
 
 ## 🛠️ Installation
 
@@ -35,8 +51,26 @@ pip install -e .
 Alternatively, once pushed to GitHub, users can install it directly via URL:
 
 ```bash
-pip install git+https://github.com
+pip install git+https://github.com/CasriMill/hta-analytics.git
 ```
+
+---
+
+## Workflow in the GUI
+
+1. Use **Load data file** to import a CSV/XLSX file with the metadata rows
+   described below, or use **Generate demo data**.
+2. Open **Weights** and check the imported weights. Set a weight to zero when
+   a criterion should be used only for filtering; negative weights are invalid.
+3. Use **Filters** to apply knockout conditions and confirm the filtered
+   device count.
+4. Select an MCDA method and normalization, then press **Run MCDA**. If
+   manually edited weights exclude criteria, confirm the exclusion dialog.
+5. Review **Results**, then use the export buttons for CSV/XLSX output.
+6. Open **Graphs** to inspect ranking and weight-sensitivity charts and export
+   the PNG charts at high resolution.
+
+The **Help / Workflow** button in the GUI opens this README directly.
 
 ---
 
@@ -105,7 +139,7 @@ If you use this software or its computational methods in your academic research,
 * **ORCID:** [https://orcid.org/0000-0002-5834-7184]
 
 **Suggested Citation Format:**
-> Your Name. (2026). *HTA Analytics: A Python library for Multi-Criteria Decision Analysis and Weight Sensitivity in Health Technology Assessment*. GitHub repository. Available at: https://github.com
+> Your Name. (2026). *HTA Analytics: A Python library for Multi-Criteria Decision Analysis and Weight Sensitivity in Health Technology Assessment*. GitHub repository. Available at: https://github.com/CasriMill/hta-analytics
 
 ---
 

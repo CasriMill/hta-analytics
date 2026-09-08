@@ -20,6 +20,7 @@ class WeightsEditor(QWidget):
         super().__init__()
         self.hta = hta
         self.weight_fields = {}
+        self.weights_changed_manually = False
         self.group = QGroupBox("Weights")
         self.form = QFormLayout()
         self.container = QWidget()
@@ -48,6 +49,7 @@ class WeightsEditor(QWidget):
         self.refresh_fields()
 
     def refresh_fields(self):
+        self.weights_changed_manually = False
         for i in reversed(range(self.form.count())):
             item = self.form.takeAt(i)
             widget = item.widget()
@@ -62,8 +64,8 @@ class WeightsEditor(QWidget):
         for column in self.hta.variables_config:
             spin = QDoubleSpinBox()
             spin.setRange(0.0, 10.0)
-            spin.setDecimals(3)
-            spin.setSingleStep(0.1)
+            spin.setDecimals(6)
+            spin.setSingleStep(0.001)
             current_weight = 1.0
             if self.hta.weights is not None and column in self.hta.weights:
                 current_weight = float(self.hta.weights[column])
@@ -87,6 +89,7 @@ class WeightsEditor(QWidget):
             self.apply_btn.setEnabled(False)
 
     def _weights_changed(self):
+        self.weights_changed_manually = True
         self.status_label.setText("Weights changed; check the sum")
         self.apply_btn.setText("Apply weights")
         self.apply_btn.setEnabled(False)
@@ -120,8 +123,23 @@ class WeightsEditor(QWidget):
         if total <= 0:
             self.check_weights()
             return
-        for column, value in weights.items():
-            self.weight_fields[column].setValue(value / total)
+        normalized = {
+            column: value / total for column, value in weights.items()
+        }
+        positive_columns = [
+            column for column, value in normalized.items() if value > 0
+        ]
+        for column in normalized:
+            self.weight_fields[column].setValue(normalized[column])
+
+        if positive_columns:
+            last_column = positive_columns[-1]
+            other_sum = sum(
+                self.weight_fields[column].value()
+                for column in normalized
+                if column != last_column
+            )
+            self.weight_fields[last_column].setValue(1.0 - other_sum)
         self.check_weights()
 
     def apply_weights(self):
@@ -129,6 +147,7 @@ class WeightsEditor(QWidget):
             return
         weights = self._current_weights()
         self.hta.set_weights(weights)
+        self.weights_changed_manually = True
         self._set_applied_state(True)
         self.status_changed.emit("Weights applied")
 

@@ -108,7 +108,10 @@ class HTAGUI(QMainWindow):
 
         norm_layout = QVBoxLayout(self.norm_group)
         self.norm_buttons = {}
-        for method in ["minmax", "weitendorf", "z_score"]:
+        for method in [
+            "minmax", "weitendorf", "z_score", "max", "juttler_korth",
+            "sum", "vector", "sigmoid", "peldchus_t2", "peldchus_t3",
+        ]:
             radio = QRadioButton(method)
             radio.setChecked(method == "minmax")
             self.norm_buttons[method] = radio
@@ -390,6 +393,9 @@ class HTAGUI(QMainWindow):
 
         method = self._selected_method()
         norm = self._selected_norm()
+        if not self._confirm_mcda_exclusions():
+            self.tabs.setCurrentIndex(0)
+            return
 
         try:
             self.hta.run_mcda(method=method, norm_method=norm)
@@ -397,6 +403,31 @@ class HTAGUI(QMainWindow):
             self.refresh_chart()
         except Exception as exc:
             QMessageBox.critical(self, "Analysis error", str(exc))
+
+    def _confirm_mcda_exclusions(self):
+        if not getattr(self.weights_editor, "weights_changed_manually", False):
+            return True
+        zero_weight = [
+            column for column, weight in self.hta.weights.items()
+            if float(weight) == 0.0
+        ] if self.hta.weights is not None else []
+        categorical = [
+            column for column, config in self.hta.variables_config.items()
+            if config.get("dtype") not in {"int", "float", "bool"}
+        ]
+        excluded = list(dict.fromkeys(zero_weight + categorical))
+        if not excluded:
+            return True
+        details = "\n".join(f"- {column}" for column in excluded)
+        answer = QMessageBox.question(
+            self,
+            "Criteria excluded from MCDA",
+            "The following criteria will not participate in MCDA:\n\n"
+            f"{details}\n\nContinue with these criteria excluded?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return answer == QMessageBox.Yes
 
     def export_csv(self):
         if self.hta.results is None or self.hta.results.get("ranking") is None:
