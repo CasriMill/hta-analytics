@@ -1,6 +1,6 @@
-# HTA Analytics 0.4.0 - GUI version under construction (comprehensive import/filter/preview/export)
+# HTA Analytics GUI 0.4.0
 
-A robust and comprehensive Python library for **Health Technology Assessment (HTA)**. Designed specifically for evaluating medical devices and clinical systems using Multi-Criteria Decision Analysis (MCDA). 
+A graphical application and Python library for **Health Technology Assessment (HTA)**. The GUI is designed for evaluating medical devices and clinical systems using Multi-Criteria Decision Analysis (MCDA), without requiring users to write Python code.
 
 The library supports dynamic data generation, multi-format file imports (CSV/XLSX), variable filtering, dual-mode data normalization, and cutting-edge weight sensitivity analysis.
 
@@ -48,11 +48,29 @@ cd hta-analytics
 pip install -e .
 ```
 
-Alternatively, once pushed to GitHub, users can install it directly via URL:
+For this GUI release, install the tagged version directly from GitHub:
 
 ```bash
-pip install git+https://github.com/CasriMill/hta-analytics.git
+pip install "git+https://github.com/CasriMill/hta-analytics.git@v0.4.0"
 ```
+
+---
+
+## 🚀 Start the GUI
+
+After installation, start the application from a terminal with:
+
+```bash
+python -m hta.gui_main
+```
+
+The GUI opens with the **Import** tab. From there you can load a CSV/XLSX
+evaluation sheet or generate demo data, review the import protocol, edit
+weights, apply filters, run MCDA, and export results and charts.
+
+The repository can also be downloaded as a ZIP archive. After extracting it,
+open a terminal in the project directory, install the dependencies with
+`pip install -e .`, and run the same command above.
 
 ---
 
@@ -93,7 +111,11 @@ To enable automatic detection of data types (`int`/`float`/`bool`), criteria dir
 
 ---
 
-## 💻 Quick Start Usage
+## 💻 Python library API
+
+The GUI is the recommended entry point for this release. The underlying
+`HTA` class remains available for scripted analyses and reproducible
+workflows:
 
 ```python
 from hta import HTA
