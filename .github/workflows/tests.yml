@@ -39,5 +39,9 @@ jobs:
         pip install -e .
 
     - name: Run pytest validation suite with virtual display
+      env:
+        QT_QPA_PLATFORM: offscreen
+        QT_LOGGING_RULES: "*.debug=false;qt.qpa.gl=false"
       run: |
         xvfb-run --server-args="-screen 0 1024x768x24" pytest -v
+
