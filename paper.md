@@ -11,28 +11,29 @@ authors:
     orcid: 0000-0002-5834-7184
     affiliation: 1
 affiliations:
-  - name: Czech Technical University in Prague, Czech Republic, Faculty of Biomedical Engineering, Department of Information and Communication Technologies in Medicine
+  - name: Independent Researcher, Czechia
     index: 1
 date: 29 September 2026
 bibliography: paper.bib
 ---
 
 # Summary
-Health Technology Assessment (HTA) is a multidisciplinary process that summarizes information about the medical, social, economic, and ethical issues related to the use of a health technology. A critical component of HTA is the technical and clinical evaluation of medical devices, which inherently involves multiple conflicting criteria (e.g., purchase price, clinical efficiency, and certification status). 
+Health Technology Assessment (HTA) is a formal, multidisciplinary process used to evaluate the clinical, economic, and technical value of medical devices and healthcare technologies [@rogalewicz2016hta]. Clinical procurement boards are frequently faced with the challenge of selecting medical systems based on highly heterogeneous, conflicting criteria (e.g., purchase cost, warranty length, software interoperability, and clinical throughput). 
 
-`hta-analytics` is a comprehensive Python library and graphical user interface (GUI) designed to streamline Multi-Criteria Decision Analysis (MCDA) for HTA processes. The software bridges the gap between complex mathematical decision-making algorithms and non-technical healthcare managers, allowing users to execute data ingestion, variable filtering, criteria normalization, and robust weight sensitivity profiling without writing any code.
+`hta-analytics` is a comprehensive Python package accompanied by an intuitive Graphical User Interface (GUI) engineered to run Multi-Criteria Decision Analysis (MCDA) tailored for HTA requirements. The software bridges the gap between advanced decision-science methodologies and clinical administrators, enabling comprehensive analytical pipelines without requiring any programming knowledge.
 
 # Statement of Need
-While several specialized MCDA packages exist in the R and Python ecosystems, they typically require programming proficiency and often focus on a single family of algorithms. In clinical environments and hospital management, decision-makers who evaluate medical devices (such as X-ray machines, ventilators, or clinical systems) often lack data science skills. Furthermore, traditional tools rarely provide automated, high-precision tools for analyzing how sensitive the final ranking is to changes in criteria weights.
+While independent mathematical packages for single MCDA methods are available across various open-source ecosystems, existing solutions lack integrated end-to-end pipelines that reflect the empirical workflows of clinical managers. Hospital decision-makers require an environment that supports data ingestion, structural filtering, and mathematical adjustments within a centralized application. Furthermore, determining the robustness of a ranking against variations in criteria weight profiles typically requires complex, custom simulation scripts.
 
-`hta-analytics` addresses these challenges by offering a fully integrated, production-ready workflow within a single application. The primary contributions of the library include:
+`hta-analytics` addresses these operational gaps by delivering a feature-rich, production-ready framework. The architectural contributions of the library are structured into five core pipelines:
 
-* **Comprehensive Pipeline Integration**: Seamlessly handles the entire evaluation lifecycle—from multi-format metadata-aware data imports (CSV/XLSX) and condition-based knockout filtering to final ranking export.
-* **Algorithmic Variety**: Implements multiple standard MCDA engines, including Simple Additive Weighting (SAW), Technique for Order of Preference by Similarity to Ideal Solution (TOPSIS), and VišeKriterijumska Optimizacija I Kompromisno Rešenje (VIKOR).
-* **Outlier-Robust Normalization**: Supports eight distinct dual-mode normalization methods (e.g., Min-Max, Weitendorf, Jüttler-Körth, Sigmoid, and Peldchus) tailored to correctly process both benefit and cost criteria.
-* **Advanced Sensitivity Analysis**: Features a cutting-edge weight stability profiling engine powered by an interval bisection (binary search) algorithm. It automatically discovers precise stability thresholds and visualizes them using custom symmetric logarithmic (**SymLog**) charts.
+* **Data Ingestion and Standardization**: Supports flexible multi-format data imports (including Excel sheets and CSV datasets) containing complex technical metrics and heterogeneous medical parameters.
+* **Condition-Based Knockout Filtering**: Employs customizable logical evaluation engines allowing users to filter alternatives based on strict baseline constraints (e.g., mandatory certifications or minimum clinical capacity thresholds).
+* **Criteria Weight Control**: Provides interactive controls to adjust, normalize, and distribute importance weights across competing analytical attributes under mathematical consistency constraints.
+* **Algorithmic Variety and Custom Normalization**: Features a wide array of linear and compromise decision models including Simple Additive Weighting (SAW) [@maccrimmon1968decision], TOPSIS [@hwang1981topsis], and VIKOR [@opricovic2004vikor]. Scaling discrepancies among disparate indicators are resolved through eight dual-mode benefit/cost normalization transformations evaluated by @vafaei2016normalization.
+* **High-Precision Sensitivity Profiling**: Automates structural validation by incorporating an advanced weight sensitivity profiling engine driven by an interval bisection (binary search) algorithm based on the framework introduced by @millek2019sensitivity. The software dynamically calculates stability thresholds and projects weight limits using customized symmetric logarithmic (**SymLog**) visualizations.
 
-By combining an intuitive Graphical User Interface with a scripted Python API for reproducible research, `hta-analytics` empowers hospital procurement committees and HTA professionals to make rigorous, transparent, and mathematically sound decisions.
+By offering both an autonomous GUI application for clinical staff and a documented Python API for reproducible research, `hta-analytics` facilitates sound, auditable, and mathematically transparent decisions in health technology procurement.
 
 # Acknowledgements
-The author would like to thank the open-source community for the foundational tools used in this project, including NumPy, Pandas, and Matplotlib.
+The author would like to express gratitude to the open-source community for providing foundational infrastructure libraries, notably NumPy, Pandas, Matplotlib, and PySide6.
