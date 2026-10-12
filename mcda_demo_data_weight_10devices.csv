@@ -11,3 +11,5 @@ Device_5;165000;2800;89.5;11.25;1100;992;6;True;True;True;True;True;True
 Device_6;110000;1500;82.0;7.50;700;980;4;True;False;True;True;False;True
 Device_7;195000;3500;94.0;16.00;1600;997;9;True;True;True;True;True;True
 Device_8;140000;2200;88.0;10.00;1000;988;5;True;True;False;True;True;False
+Device_9;130000;2000;87.0;9.00;850;987;5;True;False;False;False;True;False
+Device_10;160000;2600;91.0;13.00;1300;994;7;True;True;False;True;True;True

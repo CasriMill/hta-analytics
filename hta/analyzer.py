@@ -4,16 +4,20 @@ HTA Analytics — Core Computational Engine
 ========================================
 A comprehensive module for Health Technology Assessment (HTA).
 Provides load data from "CSV/XLSX" or synthetic data generation,
-variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW and VIKOR,
+variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW, VIKOR, AHP,
 with variant normalization techniques (Min-Max, Weitendorf),
 and robust weight sensitivity assessment using interval bisection algorithms.
 
 :authors:     MILLEK Jiri  <jiri.millek@fbmi.cvut.cz> [https://orcid.org/0000-0002-5834-7184]
 :copyright:   (c) 2026 MILLEK Jiri / CASRI, p.o. MoD Czech Republic && Czech Technical University in Prague, Faculty of Biomedical Engineering dept. Information and Communication Technologies in Medicine
 :license:     MIT License
-:version:     0.1.6
+:version:     0.4.0
 :status:      Open Source
 """
+
+import re
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -40,9 +44,15 @@ class HTA:
         self.variables_config = {} if variables_config is None else variables_config
             
         self.raw_data = None
+        self.dataset_label = "Generated dataset" if self.n_devices is not None else "No dataset"
         self.weights = None
+        self.imported_weight_adjustments = {}
         self.normalized_data = None
+        self.import_validation_issues = []
+        self.import_dropped_devices = []
         self._silence_info = False
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="replace")
         
         # Results storage structure (populated after run_mcda)
         self.results = None
@@ -56,7 +66,7 @@ class HTA:
                 "efficacy": {"full_name": "Clinical Efficacy of Procedure (%)", "range": (70, 99), "type": "benefit", "dtype": "float", "std": 6, "skewness": -2, "round_to": 1},
                 "consumables": {"full_name": "Consumables Cost per Examination (EUR)", "range": (5, 20), "type": "cost", "dtype": "float", "std": 2, "skewness": 1.5, "round_to": 1},
                 "training": {"full_name": "Staff Training Cost per Course (EUR)", "range": (500, 2000), "type": "cost", "dtype": "float", "std": 300, "skewness": 1.2, "round_to": 0},
-                "accuracy": {"full_name": "Measurement Accuracy Level (‰)", "range": (975, 999), "type": "benefit", "dtype": "int", "std": 3, "skewness": 1.5},
+                "accuracy": {"full_name": "Measurement Accuracy Level (per mille)", "range": (975, 999), "type": "benefit", "dtype": "int", "std": 3, "skewness": 1.5},
                 "service_life": {"full_name": "Post-Warranty Support & Parts Availability (years)", "range": (3, 10), "type": "benefit", "dtype": "int"},
                 "ce_cert": {"full_name": "CE Certification Status", "type": "benefit", "dtype": "bool", "prob_true": 0.99},
                 "connectivity_eth": {"full_name": "Ethernet Network Connectivity", "type": "benefit", "dtype": "bool", "prob_true": 0.8},
@@ -95,7 +105,8 @@ class HTA:
         If HTA_Weight row is found, weights are automatically imported and processed.
         If not found, a warning is displayed and you must call set_weights() manually.
         """
-        print(f"\n📂 Reading international HTA data from file: {file_path}")
+        print(f"\nReading international HTA data from file: {file_path}")
+        self.dataset_label = Path(file_path).name
         try:
             # Load the source file (automatic separator detection for CSV)
             if file_path.endswith('.csv'):
@@ -140,22 +151,77 @@ class HTA:
             self.raw_data = df.drop(rows_to_drop)
             
             # Re-type columns according to the imported metadata
+            self.import_validation_issues = []
+            self.import_dropped_devices = []
             for col in self.raw_data.columns:
                 dt = self.variables_config[col]["dtype"]
                 if dt == "int":
-                    self.raw_data[col] = pd.to_numeric(self.raw_data[col]).round().astype(int)
+                    original = self.raw_data[col]
+                    try:
+                        numeric = self._coerce_numeric_column(original, col)
+                        invalid = numeric.isna() | (numeric % 1 != 0)
+                    except ValueError:
+                        numeric = pd.to_numeric(original, errors="coerce")
+                        invalid = numeric.isna() | (numeric % 1 != 0) | original.map(
+                            lambda value: isinstance(value, (bool, np.bool_))
+                        )
+                    if invalid.any():
+                        self.import_validation_issues.append(
+                            f"{col}: {int(invalid.sum())} invalid int value(s) replaced with missing"
+                        )
+                    self.raw_data[col] = numeric
                 elif dt == "float":
-                    self.raw_data[col] = pd.to_numeric(self.raw_data[col]).astype(float)
+                    original = self.raw_data[col]
+                    try:
+                        numeric = self._coerce_numeric_column(original, col)
+                    except ValueError:
+                        numeric = pd.to_numeric(original, errors="coerce")
+                    invalid = numeric.isna() | original.map(
+                        lambda value: isinstance(value, (bool, np.bool_))
+                    )
+                    if invalid.any():
+                        self.import_validation_issues.append(
+                            f"{col}: {int(invalid.sum())} invalid float value(s) replaced with missing"
+                        )
+                    self.raw_data[col] = numeric.astype(float)
                 elif dt == "bool":
                     # Convert values such as 'True'/'False' or 1/0 into proper boolean types
-                    self.raw_data[col] = self.raw_data[col].map({'True': True, 'False': False, 1: True, 0: False, True: True, False: False})
+                    original = self.raw_data[col]
+                    mapped = original.map({
+                        "true": True, "false": False, "True": True, "False": False,
+                        1: True, 0: False, True: True, False: False,
+                    })
+                    invalid = mapped.isna()
+                    if invalid.any():
+                        self.import_validation_issues.append(
+                            f"{col}: {int(invalid.sum())} invalid bool value(s) replaced with missing"
+                        )
+                    self.raw_data[col] = mapped
+                elif dt == "category":
+                    self.raw_data[col] = self.raw_data[col].astype("string")
+
+            numeric_columns = [
+                col for col, config in self.variables_config.items()
+                if config["dtype"] in {"int", "float", "bool"}
+            ]
+            if numeric_columns:
+                invalid_rows = self.raw_data[numeric_columns].isna().any(axis=1)
+                self.import_dropped_devices = list(self.raw_data.index[invalid_rows])
+                if self.import_dropped_devices:
+                    self.import_validation_issues.append(
+                        f"{len(self.import_dropped_devices)} device row(s) excluded from MCDA because of invalid values"
+                    )
+                    self.raw_data = self.raw_data.loc[~invalid_rows].copy()
+            for col, config in self.variables_config.items():
+                if config["dtype"] == "int":
+                    self.raw_data[col] = self.raw_data[col].astype(int)
             
             # Set internal attributes based on the imported dataset
             self.devices = list(self.raw_data.index)
             self.filtered_devices = list(self.devices)
             self.n_devices = len(self.devices)
             
-            print(f"✅ Succesfull import of {self.n_devices} devices.")
+            print(f"Successful import of {self.n_devices} devices.")
             
             # --- PROCESS IMPORTED WEIGHTS (IF PRESENT) ---
             if weights_imported:
@@ -169,47 +235,97 @@ class HTA:
                             pass  # Skip invalid weight values
                     
                     if weights_dict:
+                        self.imported_weight_adjustments = {
+                            col: value for col, value in weights_dict.items()
+                            if value < 0
+                        }
+                        weights_dict = {
+                            col: max(value, 0.0)
+                            for col, value in weights_dict.items()
+                        }
                         self.set_weights(weights_dict)
-                        print(f"📊 Weights imported successfully from file:")
+                        print("Weights imported successfully from file:")
                         for var, weight in self.weights.items():
                             full_name = self.variables_config.get(var, {}).get("full_name", var)
-                            print(f"   • {var:20s} ({full_name:45s}): {weight:.4f}")
+                            print(f"   - {var:20s} ({full_name:45s}): {weight:.4f}")
                     else:
-                        print(f"⚠️  Weights row found but all values are invalid. Using default equal weights.")
+                        print("Weights row found but all values are invalid. Using default equal weights.")
                         self.set_weights({col: 1.0 for col in self.variables_config.keys()})
                 except Exception as e:
-                    print(f"⚠️  Error processing weights: {str(e)}")
-                    print(f"   Using default equal weights instead.")
+                    print(f"Error processing weights: {str(e)}")
+                    print("Using default equal weights instead.")
                     self.set_weights({col: 1.0 for col in self.variables_config.keys()})
             else:
-                print(f"⚠️  No weight row (HTA_Weight) found in the file.")
-                print(f"   ⓘ  Weights are required for MCDA analysis.")
-                print(f"   → Please provide weights using: set_weights({{...}}) or add HTA_Weight row to your CSV/XLSX file.")
+                print("No weight row (HTA_Weight) found in the file.")
+                print("Weights are required for MCDA analysis.")
+                print("Please provide weights using: set_weights({...}) or add HTA_Weight row to your CSV/XLSX file.")
             
             # Run the data consistency check to confirm there are no NaN or invalid values.
             return self.validate_data()
             
         except Exception as e:
-            print(f"❌ Critical error in import of file: {str(e)}")
+            print(f"Critical error in import of file: {str(e)}")
             self.raw_data = None
             return False
+
+    @staticmethod
+    def _coerce_numeric_column(series, column):
+        """Convert numeric values and remove one shared textual unit if present."""
+        numeric = pd.to_numeric(series, errors="coerce")
+        if numeric.notna().all():
+            return numeric
+
+        parsed = []
+        prefixes = []
+        suffixes = []
+        for value in series.astype(str):
+            match = re.match(
+                r"^\s*(.*?)\s*([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+))\s*(.*?)\s*$",
+                value,
+            )
+            if match is None:
+                raise ValueError(
+                    f"Column '{column}' contains values that are not numeric and do not share a removable unit."
+                )
+            prefix, number, suffix = match.groups()
+            prefixes.append(prefix)
+            suffixes.append(suffix)
+            parsed.append(number)
+
+        shared_prefix = prefixes[0]
+        shared_suffix = suffixes[0]
+        if (any(prefix != shared_prefix for prefix in prefixes) or
+                any(suffix != shared_suffix for suffix in suffixes) or
+                not (shared_prefix or shared_suffix)):
+            raise ValueError(
+                f"Column '{column}' contains inconsistent text around numeric values."
+            )
+
+        decimal_values = [value.replace(",", ".") for value in parsed]
+        numeric = pd.to_numeric(pd.Series(decimal_values, index=series.index), errors="coerce")
+        if numeric.isna().any():
+            raise ValueError(f"Column '{column}' contains invalid numeric values.")
+        print(
+            f"Removed shared unit '{(shared_prefix + shared_suffix).strip()}' from column '{column}'."
+        )
+        return numeric
 
     def validate_data(self):
         """Perform strict validation of the format and consistency of loaded or generated data."""
         if self.raw_data is None:
-            print("❌ Critical error: No data has been loaded for validation.")
+            print("Critical error: No data has been loaded for validation.")
             return False
             
         is_consistent = True
-        print("\n🔍 DATA FORMAT AND CONSISTENCY TEST HAS STARTED...")
+        print("\nDATA FORMAT AND CONSISTENCY TEST HAS STARTED...")
         
         if self.raw_data.isna().sum().sum() > 0:
-            print("   ⚠️ Warning: The table contains empty or undefined values (NaN)!")
+            print("   Warning: The table contains empty or undefined values (NaN)!")
             is_consistent = False
             
         for short_name in self.variables_config.keys():
             if short_name not in self.raw_data.columns:
-                print(f"   ❌ Critical error: Required column '{short_name}' is missing from the dataset!")
+                print(f"   Critical error: Required column '{short_name}' is missing from the dataset!")
                 is_consistent = False
                 continue
                 
@@ -219,21 +335,21 @@ class HTA:
             
             if dtype == "bool":
                 if not series.isin([True, False, 0, 1, 0.0, 1.0]).all():
-                    print(f"   ❌ Type error: Column '{short_name}' should be BOOL but contains other values!")
+                    print(f"   Type error: Column '{short_name}' should be BOOL but contains other values!")
                     is_consistent = False
             elif dtype == "int":
                 if not np.equal(series, series.astype(int)).all():
-                    print(f"   ⚠️ Warning: Column '{short_name}' should be INT but contains decimal values!")
+                    print(f"   Warning: Column '{short_name}' should be INT but contains decimal values!")
                     
             if dtype != "bool" and "range" in cfg:
                 low, high = cfg["range"]
                 if series.min() < low or series.max() > high:
-                    print(f"   ⚠️ Range warning: Values in column '{short_name}' exceed the configured range (Current Min: {series.min()}, Max: {series.max()} vs allowed {cfg['range']}).")
+                    print(f"   Range warning: Values in column '{short_name}' exceed the configured range (Current Min: {series.min()}, Max: {series.max()} vs allowed {cfg['range']}).")
 
         if is_consistent:
-            print("🚀 All format and consistency checks passed successfully. Data are valid.")
+            print("All format and consistency checks passed successfully. Data are valid.")
         else:
-            print("⚠️ Inconsistencies were found in the data. Check the output above.")
+            print("Inconsistencies were found in the data. Check the output above.")
             
         return is_consistent
 
@@ -365,20 +481,146 @@ class HTA:
         self.weights = pd.Series({k: v / total for k, v in full_weights.items()})
         return self.weights
 
-    def apply_filters(self, filter_dict):
-        """Apply exclusion criteria (e.g., {'ce_cert': True})."""
-        self.filtered_devices = list(self.devices)
-        for col, target_val in filter_dict.items():
-            if col in self.raw_data.columns:
-                passed = self.raw_data[self.raw_data[col] == target_val].index
-                self.filtered_devices = [d for d in self.filtered_devices if d in passed]
-        print(f"\nFilter {filter_dict} applied. Proceeding with {len(self.filtered_devices)} out of {self.n_devices} devices.")
+    def _normalize_filter_rules(self, filter_spec):
+        """Normalize several filter syntaxes into a list of rules."""
+        if filter_spec is None:
+            return []
 
-    def normalize_data(self, method="weitendorf"):
-        """Alternative normalization methods: 'minmax', 'weitendorf', 'z_score'."""
+        if isinstance(filter_spec, dict):
+            if all(isinstance(v, (dict, list, tuple)) for v in filter_spec.values()) and not filter_spec:
+                return []
+
+            if all(key not in ("column", "operator") for key in filter_spec.keys()):
+                normalized = []
+                for col, target_val in filter_spec.items():
+                    normalized.append({"column": col, "operator": "eq", "value": target_val})
+                return normalized
+
+            return [filter_spec]
+
+        if isinstance(filter_spec, (list, tuple)):
+            normalized = []
+            for rule in filter_spec:
+                if isinstance(rule, dict):
+                    normalized.append(rule)
+                else:
+                    raise ValueError(f"Unsupported filter rule format: {rule!r}")
+            return normalized
+
+        raise ValueError(f"Unsupported filter specification: {filter_spec!r}")
+
+    def _evaluate_filter_rule(self, rule):
+        """Evaluate a single rule and return a boolean Series mask."""
+        if not isinstance(rule, dict):
+            raise ValueError(f"Filter rule must be a dict, got {type(rule).__name__}")
+
+        col = rule.get("column") or rule.get("col")
+        operator = str(rule.get("operator") or rule.get("op") or "eq").lower()
+
+        if col is None:
+            raise ValueError("A filter rule must contain a 'column' key.")
+        if col not in self.raw_data.columns:
+            raise KeyError(f"Column '{col}' does not exist in the current dataset.")
+
+        series = self.raw_data[col]
+        if operator == "eq":
+            value = rule.get("value")
+            return series == value
+        if operator == "neq":
+            value = rule.get("value")
+            return series != value
+        if operator == "gt":
+            value = rule.get("value")
+            return series > value
+        if operator == "gte":
+            value = rule.get("value")
+            return series >= value
+        if operator == "lt":
+            value = rule.get("value")
+            return series < value
+        if operator == "lte":
+            value = rule.get("value")
+            return series <= value
+        if operator == "between":
+            lower = rule.get("lower")
+            upper = rule.get("upper")
+            if lower is None or upper is None:
+                raise ValueError(f"Filter rule for '{col}' uses 'between' operator but no 'lower'/'upper' values were provided.")
+            return (series >= lower) & (series <= upper)
+
+        raise ValueError(f"Unsupported filter operator: '{operator}'")
+
+    def apply_filters(self, filter_spec):
+        """Apply one or more exclusion criteria.
+
+        Supported formats:
+        - {'ce_cert': True}
+        - [{'column': 'ce_cert', 'operator': 'eq', 'value': True}]
+        - [{'column': 'price', 'operator': 'between', 'lower': 100000, 'upper': 200000}]
+        """
+        rules = self._normalize_filter_rules(filter_spec)
+
+        if not rules:
+            self.filtered_devices = list(self.devices)
+            print("\nNo filter rules applied. All devices remain active.")
+            return self.filtered_devices
+
+        mask = pd.Series(True, index=self.raw_data.index)
+        for rule in rules:
+            mask &= self._evaluate_filter_rule(rule)
+
+        self.filtered_devices = list(self.raw_data.index[mask].tolist())
+        print(f"\nFilter rules applied: {rules}. Proceeding with {len(self.filtered_devices)} out of {self.n_devices} devices.")
+        return self.filtered_devices
+
+    def export_results(self, output_path):
+        """Export the current ranking results to CSV or XLSX."""
+        if self.results is None or self.results.get("ranking") is None:
+            raise ValueError("No results available. Run run_mcda() before exporting.")
+
+        output_path = str(output_path)
+        ranking_df = self.results["ranking"].copy()
+
+        if output_path.lower().endswith(".csv"):
+            ranking_df.to_csv(output_path)
+        elif output_path.lower().endswith((".xlsx", ".xls")):
+            ranking_df.to_excel(output_path)
+        else:
+            output_path = output_path + ".csv"
+            ranking_df.to_csv(output_path)
+
+        print(f"\n💾 Results exported to: {output_path}")
+        return output_path
+
+    def normalize_data(self, method="weitendorf", peldchus_t=2.0):
+        """Normalize numeric criteria so that larger values are always better.
+
+        ``minmax`` and ``z_score`` are retained for backwards compatibility.
+        The additional methods are ``max``/``juttler``, ``juttler_korth``,
+        ``sum``, ``vector``, ``sigmoid`` and ``peldchus``.
+        """
         self.normalized_data = pd.DataFrame(index=self.devices, columns=self.raw_data.columns)
+        method = str(method).lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "jüttler": "juttler",
+            "juttler_körth": "juttler_korth",
+            "peldchus_t2": "peldchus_t2",
+            "peldchus_t3": "peldchus_t3",
+        }
+        method = aliases.get(method, method)
+        supported = {
+            "minmax", "weitendorf", "z_score", "max", "juttler",
+            "juttler_korth", "sum", "vector", "sigmoid", "peldchus",
+            "peldchus_t2", "peldchus_t3",
+        }
+        if method not in supported:
+            raise ValueError(f"Unsupported normalization method: '{method}'")
+        if peldchus_t <= 0:
+            raise ValueError("peldchus_t must be greater than zero.")
         
         for col, cfg in self.variables_config.items():
+            if cfg.get("dtype") not in {"int", "float", "bool"}:
+                continue
             if cfg.get("dtype") == "bool":
                 self.normalized_data[col] = self.raw_data[col].astype(float) if cfg["type"] == "benefit" else 1.0 - self.raw_data[col].astype(float)
                 continue
@@ -386,23 +628,22 @@ class HTA:
             series = self.raw_data[col].astype(float)
             x_min, x_max, x_mean = series.min(), series.max(), series.mean()
             x_std = series.std() if series.std() != 0 else 1.0
+            benefit = cfg["type"] == "benefit"
             
+            if x_max == x_min:
+                self.normalized_data[col] = 1.0
+                continue
+
             if method == "weitendorf":
-                if x_max == x_min:
-                    self.normalized_data[col] = 1.0
-                elif cfg["type"] == "benefit":
+                if benefit:
                     self.normalized_data[col] = (series - x_min) / (x_max - x_min)
                 else:
                     self.normalized_data[col] = (x_max - series) / (x_max - x_min)
-
             elif method == "minmax":
-                if x_max == x_min:
-                    self.normalized_data[col] = 0.5
-                elif cfg["type"] == "benefit":
+                if benefit:
                     self.normalized_data[col] = series / x_max
                 else:
                     self.normalized_data[col] = 1 - (series / x_max)
-                    
             elif method == "z_score":
                 z_score = (series - x_mean) / x_std
                 z_min, z_max = z_score.min(), z_score.max()
@@ -412,6 +653,48 @@ class HTA:
                     self.normalized_data[col] = (z_score - z_min) / (z_max - z_min)
                 else:
                     self.normalized_data[col] = (z_max - z_score) / (z_max - z_min)
+            elif method in {"max", "juttler"}:
+                self.normalized_data[col] = series / x_max if benefit else 1 - (series / x_max)
+            elif method == "juttler_korth":
+                if not benefit and (series <= 0).any() or benefit and x_max == 0:
+                    raise ValueError(f"Jüttler-Körth requires positive values in '{col}'.")
+                self.normalized_data[col] = series / x_max if benefit else x_min / series
+            elif method == "sum":
+                if (series <= 0).any():
+                    raise ValueError(f"SUM normalization requires positive values in '{col}'.")
+                if benefit:
+                    self.normalized_data[col] = series / series.sum()
+                else:
+                    inverse = 1 / series
+                    self.normalized_data[col] = inverse / inverse.sum()
+            elif method == "vector":
+                denominator = np.sqrt((series ** 2).sum())
+                if denominator == 0:
+                    self.normalized_data[col] = 1.0
+                elif benefit:
+                    self.normalized_data[col] = series / denominator
+                else:
+                    self.normalized_data[col] = 1 - (series / denominator)
+            elif method == "sigmoid":
+                iqr = series.quantile(0.75) - series.quantile(0.25)
+                if iqr == 0:
+                    self.normalized_data[col] = 0.5
+                else:
+                    sigmoid_cost = 1 / (1 + np.exp((series - series.median()) / iqr))
+                    self.normalized_data[col] = 1 - sigmoid_cost if benefit else sigmoid_cost
+            elif method in {"peldchus", "peldchus_t2", "peldchus_t3"}:
+                if method == "peldchus_t2":
+                    peldchus_t = 2.0
+                elif method == "peldchus_t3":
+                    peldchus_t = 3.0
+                base = ((series - x_min) / (x_max - x_min)
+                        if benefit else (x_max - series) / (x_max - x_min))
+                # Preserve t=1 as Weitendorf while emphasizing values above
+                # the criterion's mean for t>1.
+                mean_score = base.mean()
+                centered = base - mean_score
+                transformed = mean_score + np.sign(centered) * np.abs(centered) ** peldchus_t
+                self.normalized_data[col] = transformed.clip(0, 1)
         return self.normalized_data
 
     def _prepare_active_dimensions(self):
@@ -423,6 +706,8 @@ class HTA:
         """
         active_cols = []
         for col in self.variables_config.keys():
+            if self.variables_config[col].get("dtype") not in {"int", "float", "bool"}:
+                continue
             # Use only raw data for devices that passed the filter
             raw_series = self.raw_data.loc[self.filtered_devices, col]
             
@@ -435,7 +720,7 @@ class HTA:
                 if self.weights is not None and self.weights.get(col, 0) > 0:
                     # This message is displayed only during real evaluation, not during sensitivity analysis when weights change repeatedly
                     if hasattr(self, '_silence_info') and not self._silence_info:
-                        print(f"ℹ️ Criterion '{col}' is only used as a filter in this context (all approved devices have the same value).")
+                        print(f"Criterion '{col}' is only used as a filter in this context (all approved devices have the same value).")
         return active_cols
 
     def _adjust_active_weights(self, active_cols):
@@ -466,9 +751,16 @@ class HTA:
         # Initialize default weights if they have not been set yet
         if self.weights is None:
             self.set_weights({c: 1 for c in self.variables_config.keys()})
+
+        if len(self.filtered_devices) < 2:
+            raise ValueError(
+                "At least two devices must remain after filtering for MCDA analysis."
+            )
             
         # 1. COLUMN ANALYSIS: Find variables that have real discriminating ability
         active_cols = self._prepare_active_dimensions()
+        if not active_cols:
+            raise ValueError("No numeric or boolean MCDA criteria remain after filtering.")
         
         # 2. WEIGHT RECALCULATION: Remove irrelevant criteria and normalize the total back to 100%
         active_weights = self._adjust_active_weights(active_cols)
@@ -484,9 +776,11 @@ class HTA:
         
         # 4. MCDA METHOD CALCULATION (now works with a guaranteed clean matrix and weights)
         if method == "SAW":
+            """WAS/SAW method implementation."""
             scores.loc[self.filtered_devices] = active_matrix.multiply(active_weights).sum(axis=1)
             
         elif method == "TOPSIS":
+            """TOPSIS method implementation."""
             v_matrix = active_matrix.multiply(active_weights)
             ideal_positive = pd.Series(active_weights, index=active_cols)
             ideal_negative = pd.Series(0.0, index=active_cols)
@@ -496,6 +790,7 @@ class HTA:
             scores.loc[self.filtered_devices] = d_minus / (d_plus + d_minus)
             
         elif method == "VIKOR":
+            """VIKOR method implementation."""
             v_matrix = active_matrix.multiply(active_weights)
             s = ((active_weights - v_matrix) / active_weights).multiply(active_weights).sum(axis=1)
             r = ((active_weights - v_matrix) / active_weights).multiply(active_weights).max(axis=1)
@@ -511,12 +806,30 @@ class HTA:
                 vikor_score[d] = v * val_s + (1 - v) * val_r
             scores.loc[self.filtered_devices] = 1.0 - vikor_score
 
+        elif method == "AHP":
+            """Analytic Hierarchy Process (AHP) implementation."""
+            # Step 1: Calculate weighted matrix using the existing matrix and weights
+            v_matrix = active_matrix.multiply(active_weights)
+
+            # Step 2: Compute the normalized score vector for each row (device)
+            # Použijeme .sum().sum() aby se operace nezhroutila na indexech sloupců
+            total_sum = v_matrix.sum().sum()
+            
+            if total_sum != 0:
+                ahp_scores = v_matrix.sum(axis=1) / total_sum
+            else:
+                ahp_scores = v_matrix.sum(axis=1)  # Ochrana proti dělení nulou
+
+            # Update the 'scores.loc[self.filtered_devices]' variable with AHP results
+            scores.loc[self.filtered_devices] = ahp_scores
+
         # 5. BUILD THE RESULT TABLE
         res = pd.DataFrame({"Score": scores})
         res["Status"] = ["Accepted" if i in self.filtered_devices else "Refuse" for i in res.index]
         res["Rank"] = res["Score"].rank(ascending=False, method="min")
         res.loc[res["Status"] == "Refuse", "Score"] = 0.0
-        res.loc[res["Status"] == "Refuse", "Rank"] = float('nan')
+        res.loc[res["Status"] == "Refuse", "Rank"] = pd.NA
+        res["Rank"] = res["Rank"].astype("Int64")
         res = res.sort_values(by="Rank")
         
         # 6. STORE RESULTS IN SELF.RESULTS STRUCTURE
@@ -539,37 +852,37 @@ class HTA:
         Displays method info, weights, ranking, and sensitivity bounds (if available).
         """
         if self.results is None:
-            print("❌ No results stored. Run run_mcda() first!")
+            print("No results stored. Run run_mcda() first!")
             return
         
         print("\n" + "=" * 90)
         print("   MCDA ANALYSIS RESULTS")
         print("=" * 90)
         
-        print(f"\n📋 Configuration:")
+        print("\nConfiguration:")
         print(f"   MCDA Method:       {self.results['method']}")
         print(f"   Normalization:     {self.results['norm_method']}")
         print(f"   Timestamp:         {self.results['timestamp']}")
         print(f"   Active Criteria:   {len(self.results['active_columns'])} / {len(self.variables_config)}")
         
-        print(f"\n📊 Used Weights (after filtering):")
+        print("\nUsed Weights (after filtering):")
         for col in self.results['active_columns']:
             full_name = self.variables_config.get(col, {}).get("full_name", col)
             w_value = self.results['active_weights'].get(col, 0.0)
-            print(f"   • {col:20s} = {w_value:7.4f}  ({full_name})")
+            print(f"   - {col:20s} = {w_value:7.4f}  ({full_name})")
         
-        print(f"\n🏆 Ranking Results:")
+        print("\nRanking Results:")
         ranking_df = self.results['ranking'][['Score', 'Status', 'Rank']].copy()
         print(ranking_df.to_string())
         
         # Display sensitivity bounds if available
         if self.results['sensitivity'] is not None:
-            print(f"\n⚙️  Weight Stability Bounds (Sensitivity Analysis):")
+            print("\nWeight Stability Bounds (Sensitivity Analysis):")
             sens_df = self.results['sensitivity'][['w_min', 'w_max', 'delta_minus', 'delta_plus']].copy()
             print(sens_df.to_string())
         else:
-            print(f"\n⚙️  Sensitivity analysis not yet performed.")
-            print(f"   → Run: hta.find_stability_intervals() to compute weight bounds")
+            print("\nSensitivity analysis not yet performed.")
+            print("   Run: hta.find_stability_intervals() to compute weight bounds")
         
         print("\n" + "=" * 90 + "\n")
 
@@ -592,7 +905,7 @@ class HTA:
         
         # Iterate through all variables in the configuration
         for short_name, cfg in self.variables_config.items():
-            print(f"🔹 Short name: '{short_name}'")
+            print(f"Short name: '{short_name}'")
             print(f"   - Full name:  {cfg.get('full_name', 'Not provided')}")
             print(f"   - Data type:  {cfg.get('dtype', 'float')} | Criterion direction: {cfg.get('type', 'benefit')}")
             
@@ -618,11 +931,11 @@ class HTA:
         if short_name in self.variables_config:
             # Update existing settings
             self.variables_config[short_name].update(new_settings)
-            print(f"\n🔄 Variable configuration for '{short_name}' was updated successfully.")
+            print(f"\nVariable configuration for '{short_name}' was updated successfully.")
         else:
             # Add a completely new variable if the short name does not exist
             self.variables_config[short_name] = new_settings
-            print(f"\n➕ A new variable '{short_name}' was added.")
+            print(f"\nA new variable '{short_name}' was added.")
             
         # Recalculate the total number of variables
         self.n_variables = len(self.variables_config)

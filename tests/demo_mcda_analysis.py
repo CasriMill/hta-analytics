@@ -26,7 +26,7 @@ print("="*90 + "\n")
 hta = HTA()
 
 # Načtení dat - správná cesta
-data_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mcda_demo_data_weight_8devices.csv")
+data_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mcda_demo_data_weight_10devices.csv")
 success = hta.load_data(data_file)
 
 # MCDA analýza

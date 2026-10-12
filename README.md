@@ -1,6 +1,6 @@
-# HTA Analytics
+# HTA Analytics GUI 0.4.2
 
-A robust and comprehensive Python library for **Health Technology Assessment (HTA)**. Designed specifically for evaluating medical devices and clinical systems using Multi-Criteria Decision Analysis (MCDA). 
+A graphical application and Python library for **Health Technology Assessment (HTA)**. The GUI is designed for evaluating medical devices and clinical systems using Multi-Criteria Decision Analysis (MCDA), without requiring users to write Python code.
 
 The library supports dynamic data generation, multi-format file imports (CSV/XLSX), variable filtering, dual-mode data normalization, and cutting-edge weight sensitivity analysis.
 
@@ -10,17 +10,34 @@ The library supports dynamic data generation, multi-format file imports (CSV/XLS
 
 * **Multi-Format Data Import**: Seamlessly ingest data from local CSV or Excel (.xlsx) files using a structured metadata layout.
 * **Synthetic Data Simulation**: Generate highly realistic evaluation criteria with adjustable standard deviation (`std`) and skewness (`skewness`).
-* **Dual Normalization Techniques**:
-  * Classical **Min-Max** Normalization.
-  * Advanced **Weitendorf** Normalization (Z-score based mapping to mitigate outlier effects).
+* **MCDA Normalization Techniques**:
+  * **Min-Max** and **Weitendorf** range normalization.
+  * **MAX/Jüttler**, **Jüttler-Körth**, **SUM**, **VECTOR**, **SIGMOID**, and **Peldchus**.
 * **Variant MCDA Engines**:
   * **SAW** (Simple Additive Weighting / Weighted Sum Model).
   * **TOPSIS** (Technique for Order of Preference by Similarity to Ideal Solution).
   * **VIKOR** (ViseKriterijumska Optimizacija I Kompromisno Resenje for compromise ranking).
+  * **AHP** (Analytic Hierarchy Process)
 * **Weight Stability & Sensitivity Analysis**: Automatically discovers stability thresholds using an interval bisection (binary search) algorithm.
 * **Advanced Visualizations**: Features descriptive statistical boxplots/violins and a specialized symmetric logarithmic (**SymLog**) weight sensitivity chart.
 
 ---
+
+### Normalization methods
+
+All methods return values where a higher value means a better alternative. Cost
+criteria are therefore inverted where needed. `weitendorf` uses
+`(r - r_min) / (r_max - r_min)` for benefits and
+`(r_max - r) / (r_max - r_min)` for costs. `max` (alias `juttler`) uses
+`r / r_max` for benefits and `1 - r / r_max` for costs. `juttler_korth`
+uses `r_min / r` for costs. `sum` uses inverse values for costs and direct
+values for benefits; `vector` divides by the Euclidean norm. `sigmoid` uses
+the specified function `1 / (1 + exp((r - median) / IQR))` for costs and its
+complement for benefits. `peldchus_t=1` is Weitendorf; the GUI offers the
+explicit variants `Peldchus t=2` and `Peldchus t=3`. Larger values emphasize
+departures above and below the mean.
+Constant criteria normalize to `1` and are removed from MCDA when they cannot
+distinguish active alternatives.
 
 ## 🛠️ Installation
 
@@ -32,11 +49,52 @@ cd hta-analytics
 pip install -e .
 ```
 
-Alternatively, once pushed to GitHub, users can install it directly via URL:
+For this GUI release, install the tagged version directly from GitHub:
 
 ```bash
-pip install git+https://github.com
+pip install "git+https://github.com/CasriMill/hta-analytics.git@v0.4.0"
 ```
+
+---
+
+## 🚀 Start the GUI
+
+After installation, start the application from a terminal with:
+
+```bash
+python -m hta.gui_main
+```
+
+The GUI opens with the **Import** tab. From there you can load a CSV/XLSX
+evaluation sheet or generate demo data, review the import protocol, edit
+weights, apply filters, run MCDA, and export results and charts.
+
+The repository can also be downloaded as a ZIP archive. After extracting it,
+open a terminal in the project directory, install the dependencies with
+`pip install -e .`, and run the same command above.
+
+---
+
+## Workflow in the GUI
+
+1. Use **Load data file** to import a CSV/XLSX file with the metadata rows
+   described below, or use **Generate demo data**.
+2. Open **Weights** and check the imported weights. Set a weight to zero when
+   a criterion should be used only for filtering; negative weights are invalid.
+3. Use **Filters** to apply knockout conditions and confirm the filtered
+   device count.
+4. Select an MCDA method and normalization, then press **Run MCDA**. If
+   manually edited weights exclude criteria, confirm the exclusion dialog.
+5. Review **Results**, then use the export buttons for CSV/XLSX output.
+6. Open **Graphs** to inspect ranking and weight-sensitivity charts and export
+   the PNG charts at high resolution.
+
+The **Help / Workflow** button in the GUI opens this README directly.
+
+The repository also contains `mcda_demo_errors.csv`, a deliberately invalid
+sample for testing import validation. It demonstrates invalid boolean, integer,
+float, missing numeric values, categorical values containing numbers, and a
+negative imported weight.
 
 ---
 
@@ -54,7 +112,11 @@ To enable automatic detection of data types (`int`/`float`/`bool`), criteria dir
 
 ---
 
-## 💻 Quick Start Usage
+## 💻 Python library API
+
+The GUI is the recommended entry point for this release. The underlying
+`HTA` class remains available for scripted analyses and reproducible
+workflows:
 
 ```python
 from hta import HTA
@@ -105,7 +167,7 @@ If you use this software or its computational methods in your academic research,
 * **ORCID:** [https://orcid.org/0000-0002-5834-7184]
 
 **Suggested Citation Format:**
-> Your Name. (2026). *HTA Analytics: A Python library for Multi-Criteria Decision Analysis and Weight Sensitivity in Health Technology Assessment*. GitHub repository. Available at: https://github.com
+> Your Name. (2026). *HTA Analytics: A Python library for Multi-Criteria Decision Analysis and Weight Sensitivity in Health Technology Assessment*. GitHub repository. Available at: https://github.com/CasriMill/hta-analytics
 
 ---
 
