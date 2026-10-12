@@ -106,7 +106,7 @@ class HTAGUI(QMainWindow):
         method_layout.setContentsMargins(8, 6, 8, 6)
         method_layout.setSpacing(4)
         self.method_buttons = {}
-        for method in ["SAW", "TOPSIS", "VIKOR"]:
+        for method in ["SAW", "TOPSIS", "VIKOR", "AHP"]:
             radio = QRadioButton(method)
             radio.setChecked(method == "SAW")
             self.method_buttons[method] = radio

@@ -4,7 +4,7 @@ HTA Analytics — Core Computational Engine
 ========================================
 A comprehensive module for Health Technology Assessment (HTA).
 Provides load data from "CSV/XLSX" or synthetic data generation,
-variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW and VIKOR,
+variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW, VIKOR, AHP,
 with variant normalization techniques (Min-Max, Weitendorf),
 and robust weight sensitivity assessment using interval bisection algorithms.
 
@@ -776,9 +776,11 @@ class HTA:
         
         # 4. MCDA METHOD CALCULATION (now works with a guaranteed clean matrix and weights)
         if method == "SAW":
+            """WAS/SAW method implementation."""
             scores.loc[self.filtered_devices] = active_matrix.multiply(active_weights).sum(axis=1)
             
         elif method == "TOPSIS":
+            """TOPSIS method implementation."""
             v_matrix = active_matrix.multiply(active_weights)
             ideal_positive = pd.Series(active_weights, index=active_cols)
             ideal_negative = pd.Series(0.0, index=active_cols)
@@ -788,6 +790,7 @@ class HTA:
             scores.loc[self.filtered_devices] = d_minus / (d_plus + d_minus)
             
         elif method == "VIKOR":
+            """VIKOR method implementation."""
             v_matrix = active_matrix.multiply(active_weights)
             s = ((active_weights - v_matrix) / active_weights).multiply(active_weights).sum(axis=1)
             r = ((active_weights - v_matrix) / active_weights).multiply(active_weights).max(axis=1)
@@ -802,6 +805,23 @@ class HTA:
                 val_r = (r[d] - r_min) / (r_max - r_min) if r_max != r_min else 0
                 vikor_score[d] = v * val_s + (1 - v) * val_r
             scores.loc[self.filtered_devices] = 1.0 - vikor_score
+
+        elif method == "AHP":
+            """Analytic Hierarchy Process (AHP) implementation."""
+            # Step 1: Calculate weighted matrix using the existing matrix and weights
+            v_matrix = active_matrix.multiply(active_weights)
+
+            # Step 2: Compute the normalized score vector for each row (device)
+            # Použijeme .sum().sum() aby se operace nezhroutila na indexech sloupců
+            total_sum = v_matrix.sum().sum()
+            
+            if total_sum != 0:
+                ahp_scores = v_matrix.sum(axis=1) / total_sum
+            else:
+                ahp_scores = v_matrix.sum(axis=1)  # Ochrana proti dělení nulou
+
+            # Update the 'scores.loc[self.filtered_devices]' variable with AHP results
+            scores.loc[self.filtered_devices] = ahp_scores
 
         # 5. BUILD THE RESULT TABLE
         res = pd.DataFrame({"Score": scores})
