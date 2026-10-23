@@ -4,14 +4,14 @@ HTA Analytics — Core Computational Engine
 ========================================
 A comprehensive module for Health Technology Assessment (HTA).
 Provides load data from "CSV/XLSX" or synthetic data generation,
-variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW, VIKOR, AHP,
+variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW, VIKOR, AHP, CORPAS
 with variant normalization techniques (Min-Max, Weitendorf),
 and robust weight sensitivity assessment using interval bisection algorithms.
 
 :authors:     MILLEK Jiri  <jiri.millek@fbmi.cvut.cz> [https://orcid.org/0000-0002-5834-7184]
 :copyright:   (c) 2026 MILLEK Jiri / CASRI, p.o. MoD Czech Republic && Czech Technical University in Prague, Faculty of Biomedical Engineering dept. Information and Communication Technologies in Medicine
 :license:     MIT License
-:version:     0.4.0
+:version:     0.4.2
 :status:      Open Source
 """
 
@@ -660,8 +660,9 @@ class HTA:
                     raise ValueError(f"Jüttler-Körth requires positive values in '{col}'.")
                 self.normalized_data[col] = series / x_max if benefit else x_min / series
             elif method == "sum":
-                if (series <= 0).any():
-                    raise ValueError(f"SUM normalization requires positive values in '{col}'.")
+                # If the minimum is zero or negative, we shift the entire sequence above zero
+                if series.min() <= 0:
+                    series = series + (-series.min()) + 1e-6
                 if benefit:
                     self.normalized_data[col] = series / series.sum()
                 else:
@@ -822,6 +823,31 @@ class HTA:
 
             # Update the 'scores.loc[self.filtered_devices]' variable with AHP results
             scores.loc[self.filtered_devices] = ahp_scores
+
+        elif method == "CORPAS":
+            """CORPAS method implementation."""
+            # Normalize matrix (assumed already done)
+            # Multiply each element by its corresponding weight
+            weighted_matrix = active_matrix.multiply(active_weights)
+
+            # Step 2: Aggregate rows (alternatives)
+            # Sum of max criteria (S+)
+            # Sum of min criteria (S-)
+            S_plus = weighted_matrix.apply(lambda row: row.sum(), axis=1)
+            S_minus = weighted_matrix.apply(lambda row: row.sum(), axis=1)
+
+            # Step 3: Total priority index (Q)
+            total_S_minus = S_minus.sum()
+            Q = S_plus + (S_minus.apply(lambda x: x if x != 0 else 1e-6)).apply(
+                lambda x: x / (x * (1 / total_S_minus))
+            )
+
+            # Step 4: Utility degree (N) in percentage
+            Q_max = Q.max()
+            N = (Q / Q_max) * 100
+
+            # Return results
+            scores.loc[self.filtered_devices] = N
 
         # 5. BUILD THE RESULT TABLE
         res = pd.DataFrame({"Score": scores})
