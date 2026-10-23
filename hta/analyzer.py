@@ -4,14 +4,14 @@ HTA Analytics — Core Computational Engine
 ========================================
 A comprehensive module for Health Technology Assessment (HTA).
 Provides load data from "CSV/XLSX" or synthetic data generation,
-variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW, VIKOR, AHP,
+variant multi-criteria decision analysis (MCDA) by methods: TOPSIS, SAW, VIKOR, AHP, CORPAS
 with variant normalization techniques (Min-Max, Weitendorf),
 and robust weight sensitivity assessment using interval bisection algorithms.
 
 :authors:     MILLEK Jiri  <jiri.millek@fbmi.cvut.cz> [https://orcid.org/0000-0002-5834-7184]
 :copyright:   (c) 2026 MILLEK Jiri / CASRI, p.o. MoD Czech Republic && Czech Technical University in Prague, Faculty of Biomedical Engineering dept. Information and Communication Technologies in Medicine
 :license:     MIT License
-:version:     0.4.0
+:version:     0.4.2
 :status:      Open Source
 """
 

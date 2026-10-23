@@ -18,6 +18,7 @@ The library supports dynamic data generation, multi-format file imports (CSV/XLS
   * **TOPSIS** (Technique for Order of Preference by Similarity to Ideal Solution).
   * **VIKOR** (ViseKriterijumska Optimizacija I Kompromisno Resenje for compromise ranking).
   * **AHP** (Analytic Hierarchy Process)
+  * **CORPAS** (Zavadskas E.K., Kalkauskas A., 1994)
 * **Weight Stability & Sensitivity Analysis**: Automatically discovers stability thresholds using an interval bisection (binary search) algorithm.
 * **Advanced Visualizations**: Features descriptive statistical boxplots/violins and a specialized symmetric logarithmic (**SymLog**) weight sensitivity chart.
 
